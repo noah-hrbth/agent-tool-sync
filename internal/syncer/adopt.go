@@ -1,0 +1,94 @@
+package syncer
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/adrg/frontmatter"
+	"github.com/noah-hrbth/agentsync/internal/canonical"
+)
+
+// AdoptExternal reads the divergent file at <workspace>/<path>, maps it back to
+// the matching canonical entity, and persists the canonical update.
+// The caller must reload canonical from disk after this returns.
+func AdoptExternal(workspace, path string) error {
+	absPath := filepath.Join(workspace, path)
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+	content := string(data)
+
+	switch {
+	case path == ".claude/CLAUDE.md" || path == "AGENTS.md" || path == "GEMINI.md":
+		return canonical.SaveRules(workspace, content)
+
+	case path == ".cursor/rules/general.mdc":
+		// Strip the frontmatter wrapper added by the Cursor adapter.
+		var discard map[string]interface{}
+		rest, err := frontmatter.Parse(strings.NewReader(content), &discard)
+		if err != nil {
+			return fmt.Errorf("parse cursor frontmatter: %w", err)
+		}
+		return canonical.SaveRules(workspace, string(rest))
+
+	case matchSkillPath(path):
+		var s canonical.Skill
+		body, err := frontmatter.Parse(strings.NewReader(content), &s)
+		if err != nil {
+			return fmt.Errorf("parse skill frontmatter: %w", err)
+		}
+		s.Dir = skillDir(path)
+		s.Body = string(body)
+		return canonical.SaveSkill(workspace, &s)
+
+	case matchAgentPath(path):
+		var a canonical.Agent
+		body, err := frontmatter.Parse(strings.NewReader(content), &a)
+		if err != nil {
+			return fmt.Errorf("parse agent frontmatter: %w", err)
+		}
+		a.Filename = strings.TrimSuffix(filepath.Base(path), ".md")
+		a.Body = string(body)
+		return canonical.SaveAgent(workspace, &a)
+
+	case matchCommandPath(path):
+		var cmd canonical.Command
+		body, err := frontmatter.Parse(strings.NewReader(content), &cmd)
+		if err != nil {
+			return fmt.Errorf("parse command frontmatter: %w", err)
+		}
+		cmd.Filename = strings.TrimSuffix(filepath.Base(path), ".md")
+		cmd.Body = string(body)
+		return canonical.SaveCommand(workspace, &cmd)
+
+	default:
+		return fmt.Errorf("adopt: no canonical mapping for path %q", path)
+	}
+}
+
+func matchSkillPath(path string) bool {
+	return (strings.HasPrefix(path, ".claude/skills/") || strings.HasPrefix(path, ".opencode/skills/")) &&
+		strings.HasSuffix(path, "/SKILL.md")
+}
+
+func skillDir(path string) string {
+	// .claude/skills/<dir>/SKILL.md → parts[2] is the dir
+	parts := strings.Split(path, "/")
+	if len(parts) < 4 {
+		return ""
+	}
+	return parts[2]
+}
+
+func matchAgentPath(path string) bool {
+	return (strings.HasPrefix(path, ".claude/agents/") || strings.HasPrefix(path, ".opencode/agents/")) &&
+		strings.HasSuffix(path, ".md")
+}
+
+func matchCommandPath(path string) bool {
+	return (strings.HasPrefix(path, ".claude/commands/") || strings.HasPrefix(path, ".opencode/commands/")) &&
+		strings.HasSuffix(path, ".md")
+}

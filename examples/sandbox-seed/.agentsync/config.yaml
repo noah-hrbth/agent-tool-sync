@@ -1,0 +1,11 @@
+tools:
+  Claude Code:
+    enabled: true
+  Codex CLI:
+    enabled: false
+  Cursor:
+    enabled: true
+  Gemini CLI:
+    enabled: false
+  OpenCode:
+    enabled: true
