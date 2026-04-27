@@ -16,6 +16,7 @@ rm -rf \
   "$SANDBOX/AGENTS.md" \
   "$SANDBOX/GEMINI.md"
 
+mkdir -p "$SANDBOX"
 cp -R "$SEED/.agentsync" "$SANDBOX/.agentsync"
 mkdir -p "$SANDBOX/.claude" "$SANDBOX/.opencode" "$SANDBOX/.cursor"
 

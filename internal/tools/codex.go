@@ -1,8 +1,6 @@
 package tools
 
 import (
-	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/noah-hrbth/agentsync/internal/canonical"
@@ -12,15 +10,8 @@ type codexAdapter struct{}
 
 func (a *codexAdapter) Name() string { return "Codex CLI" }
 
-func (a *codexAdapter) Detect(workspace string) Installation {
-	dir := filepath.Join(workspace, ".codex")
-	if _, err := os.Stat(dir); err == nil {
-		return Installation{Found: true, Path: dir}
-	}
-	if path, err := exec.LookPath("codex"); err == nil {
-		return Installation{Found: true, Path: path}
-	}
-	return Installation{}
+func (a *codexAdapter) Detect(_ string) Installation {
+	return detectGlobalDir("codex")
 }
 
 func (a *codexAdapter) Supports(concept Concept) Compatibility {
@@ -29,9 +20,10 @@ func (a *codexAdapter) Supports(concept Concept) Compatibility {
 		return Compatibility{Supported: true}
 	case ConceptCommands:
 		return Compatibility{
-			Supported:  true,
-			Deprecated: true,
-			Reason:     "legacy prompts deprecated — prefer skills",
+			Supported:   true,
+			Deprecated:  true,
+			Reason:      "legacy prompts deprecated — prefer skills",
+			Replacement: "skills",
 		}
 	default:
 		return Compatibility{Supported: false}

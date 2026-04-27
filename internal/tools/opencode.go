@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"os"
 	"path/filepath"
 
 	"github.com/noah-hrbth/agentsync/internal/canonical"
@@ -11,12 +10,8 @@ type openCodeAdapter struct{}
 
 func (a *openCodeAdapter) Name() string { return "OpenCode" }
 
-func (a *openCodeAdapter) Detect(workspace string) Installation {
-	dir := filepath.Join(workspace, ".opencode")
-	if _, err := os.Stat(dir); err == nil {
-		return Installation{Found: true, Path: dir}
-	}
-	return Installation{}
+func (a *openCodeAdapter) Detect(_ string) Installation {
+	return detectGlobalDir("opencode")
 }
 
 func (a *openCodeAdapter) Supports(concept Concept) Compatibility {

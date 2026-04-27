@@ -13,6 +13,10 @@ var (
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(colorMuted)
 
+	stylePanelBorderInset = stylePanelBorder.
+				Padding(0, 1).
+				MarginLeft(1)
+
 	stylePanelBorderActive = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(colorPrimary)

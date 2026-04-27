@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"os"
 	"path/filepath"
 
 	"github.com/noah-hrbth/agentsync/internal/canonical"
@@ -11,20 +10,17 @@ type claudeAdapter struct{}
 
 func (a *claudeAdapter) Name() string { return "Claude Code" }
 
-func (a *claudeAdapter) Detect(workspace string) Installation {
-	dir := filepath.Join(workspace, ".claude")
-	if _, err := os.Stat(dir); err == nil {
-		return Installation{Found: true, Path: dir}
-	}
-	return Installation{}
+func (a *claudeAdapter) Detect(_ string) Installation {
+	return detectGlobalDir("claude")
 }
 
 func (a *claudeAdapter) Supports(concept Concept) Compatibility {
 	if concept == ConceptCommands {
 		return Compatibility{
-			Supported:  true,
-			Deprecated: true,
-			Reason:     "merged into skills 2026-01-24 — prefer skills",
+			Supported:   true,
+			Deprecated:  true,
+			Reason:      "merged into skills 2026-01-24 — prefer skills",
+			Replacement: "skills",
 		}
 	}
 	return Compatibility{Supported: true}

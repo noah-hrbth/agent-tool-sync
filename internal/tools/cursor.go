@@ -2,7 +2,6 @@ package tools
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/noah-hrbth/agentsync/internal/canonical"
@@ -12,12 +11,8 @@ type cursorAdapter struct{}
 
 func (a *cursorAdapter) Name() string { return "Cursor" }
 
-func (a *cursorAdapter) Detect(workspace string) Installation {
-	dir := filepath.Join(workspace, ".cursor")
-	if _, err := os.Stat(dir); err == nil {
-		return Installation{Found: true, Path: dir}
-	}
-	return Installation{}
+func (a *cursorAdapter) Detect(_ string) Installation {
+	return detectGlobalDir("cursor")
 }
 
 func (a *cursorAdapter) Supports(_ Concept) Compatibility {

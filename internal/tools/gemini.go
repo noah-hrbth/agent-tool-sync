@@ -1,8 +1,6 @@
 package tools
 
 import (
-	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/noah-hrbth/agentsync/internal/canonical"
@@ -12,15 +10,8 @@ type geminiAdapter struct{}
 
 func (a *geminiAdapter) Name() string { return "Gemini CLI" }
 
-func (a *geminiAdapter) Detect(workspace string) Installation {
-	dir := filepath.Join(workspace, ".gemini")
-	if _, err := os.Stat(dir); err == nil {
-		return Installation{Found: true, Path: dir}
-	}
-	if path, err := exec.LookPath("gemini"); err == nil {
-		return Installation{Found: true, Path: path}
-	}
-	return Installation{}
+func (a *geminiAdapter) Detect(_ string) Installation {
+	return detectGlobalDir("gemini")
 }
 
 func (a *geminiAdapter) Supports(concept Concept) Compatibility {

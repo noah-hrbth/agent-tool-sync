@@ -1,6 +1,11 @@
 package tools
 
-import "github.com/noah-hrbth/agentsync/internal/canonical"
+import (
+	"os"
+	"path/filepath"
+
+	"github.com/noah-hrbth/agentsync/internal/canonical"
+)
 
 // Concept is a category of AI tool configuration.
 type Concept string
@@ -14,12 +19,13 @@ const (
 
 // Compatibility reports whether a tool supports a given concept.
 type Compatibility struct {
-	Supported  bool
-	Reason     string // non-empty when not supported; shown in TUI badge
-	Deprecated bool   // vendor recommends a successor concept; not rendered
+	Supported   bool
+	Reason      string // non-empty when not supported; shown in TUI badge
+	Deprecated  bool   // vendor recommends a successor concept; not rendered
+	Replacement string // concept name that supersedes this one when Deprecated
 }
 
-// Installation reports whether a tool appears to be installed in the workspace.
+// Installation reports whether a tool is installed via the user's global config dir (`~/.<tool>`).
 type Installation struct {
 	Found bool
 	Path  string // detected folder or binary path
@@ -37,7 +43,7 @@ type Adapter interface {
 	// Name returns the human-readable tool name (e.g. "Claude Code").
 	Name() string
 
-	// Detect reports whether the tool appears installed in workspace.
+	// Detect reports whether the tool is installed via the user's global config dir (`~/.<tool>`).
 	Detect(workspace string) Installation
 
 	// Supports reports whether the tool has a native concept for category.
@@ -50,4 +56,17 @@ type Adapter interface {
 	// Alias returns the display filename for the tool's per-concept output when it
 	// differs from the canonical name. Returns an empty string when no alias applies.
 	Alias(concept Concept) string
+}
+
+// detectGlobalDir reports installation when ~/.<name> exists.
+func detectGlobalDir(name string) Installation {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return Installation{}
+	}
+	dir := filepath.Join(home, "."+name)
+	if _, err := os.Stat(dir); err == nil {
+		return Installation{Found: true, Path: dir}
+	}
+	return Installation{}
 }

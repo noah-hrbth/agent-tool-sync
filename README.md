@@ -32,11 +32,11 @@ curl -sSL https://raw.githubusercontent.com/noah-hrbth/agent-tool-sync/main/scri
 
 | Tool | Rules | Skills | Agents | Commands | Detection |
 |---|---|---|---|---|---|
-| Claude Code | `.claude/CLAUDE.md` | `.claude/skills/<dir>/SKILL.md` | `.claude/agents/<name>.md` | `.claude/commands/<name>.md` | `.claude/` folder |
-| OpenCode | `AGENTS.md` | `.opencode/skills/<dir>/SKILL.md` | `.opencode/agents/<name>.md` | `.opencode/commands/<name>.md` | `.opencode/` folder |
-| Cursor | `.cursor/rules/general.mdc` | `.cursor/skills/<dir>/SKILL.md` | `.cursor/agents/<name>.md` | `.cursor/commands/<name>.md` | `.cursor/` folder |
-| Gemini CLI | `GEMINI.md` | — | — | — | `.gemini/` folder or `gemini` in `$PATH` |
-| Codex CLI | `AGENTS.md` | — | — | — | `.codex/` folder or `codex` in `$PATH` |
+| Claude Code | `.claude/CLAUDE.md` | `.claude/skills/<dir>/SKILL.md` | `.claude/agents/<name>.md` | `.claude/commands/<name>.md` | `~/.claude/` |
+| OpenCode | `AGENTS.md` | `.opencode/skills/<dir>/SKILL.md` | `.opencode/agents/<name>.md` | `.opencode/commands/<name>.md` | `~/.opencode/` |
+| Cursor | `.cursor/rules/general.mdc` | `.cursor/skills/<dir>/SKILL.md` | `.cursor/agents/<name>.md` | `.cursor/commands/<name>.md` | `~/.cursor/` |
+| Gemini CLI | `GEMINI.md` | — | — | — | `~/.gemini/` |
+| Codex CLI | `AGENTS.md` | — | — | — | `~/.codex/` |
 
 `AGENTS.md` at the workspace root is shared by OpenCode and Codex CLI — both tools read it natively.
 

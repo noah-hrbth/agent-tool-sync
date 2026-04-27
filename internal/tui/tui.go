@@ -28,16 +28,16 @@ const (
 type divChoice int
 
 const (
-	choiceNone     divChoice = iota
-	choiceAdopt              // use external edit, update canonical
-	choiceOverwrite          // discard external edit, write canonical
-	choiceDefer              // skip this file this run
+	choiceNone      divChoice = iota
+	choiceAdopt               // use external edit, update canonical
+	choiceOverwrite           // discard external edit, write canonical
+	choiceDefer               // skip this file this run
 )
 
 type fileKind int
 
 const (
-	kindRules   fileKind = iota
+	kindRules fileKind = iota
 	kindSkill
 	kindAgent
 	kindCommand
@@ -106,7 +106,6 @@ type model struct {
 
 	// status from last syncer.Status() call
 	statusMap map[string]syncer.FileStatus
-
 }
 
 // ---- helpers ----
@@ -131,7 +130,6 @@ func initialModel(workspace string, c *canonical.Canonical, cfg *config.Config, 
 	m.editor = ta
 	return m
 }
-
 
 func buildFileItems(c *canonical.Canonical) []fileItem {
 	items := []fileItem{{label: "AGENTS.md  (rules)", kind: kindRules}}
@@ -337,11 +335,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
-		case "tab", "shift+tab", "1", "2", "3":
+		case "tab", "shift+tab", "right", "left", "l", "h", "1", "2", "3":
 			switch msg.String() {
-			case "tab":
+			case "tab", "right", "l":
 				m.screen = screen((int(m.screen) + 1) % 3)
-			case "shift+tab":
+			case "shift+tab", "left", "h":
 				m.screen = screen((int(m.screen) + 2) % 3)
 			case "1":
 				m.screen = screenFiles
@@ -576,7 +574,10 @@ func buildSyncLines(result *syncer.SyncResult, adapters []tools.Adapter) []strin
 	conceptOrder := []tools.Concept{tools.ConceptRules, tools.ConceptSkills, tools.ConceptAgents, tools.ConceptCommands}
 
 	// Index written and skipped by toolName → concept → []path
-	type entry struct{ path string; deferred bool }
+	type entry struct {
+		path     string
+		deferred bool
+	}
 	grouped := map[string]map[tools.Concept][]entry{}
 	for _, f := range result.Written {
 		if grouped[f.ToolName] == nil {
@@ -684,18 +685,18 @@ func (m model) renderFooter() string {
 	case m.showDiv:
 		keys = "a adopt • o overwrite • d defer • enter apply • esc cancel"
 	case m.screen == screenFiles:
-		keys = "j/k navigate • e edit • s sync • tab/shift+tab switch screen • q quit"
+		keys = "j/k move  •  e edit  •  s sync  •  h/← prev tab  •  l/→ next tab  •  q quit"
 	case m.screen == screenTools:
-		keys = "j/k navigate • enter/space toggle • tab/shift+tab switch screen • q quit"
+		keys = "j/k move  •  space toggle  •  h/← prev tab  •  l/→ next tab  •  q quit"
 	case m.screen == screenSync:
-		keys = "s sync • tab/shift+tab switch screen • q quit"
+		keys = "s sync  •  h/← prev tab  •  l/→ next tab  •  q quit"
 	}
 	return styleFooter.Render(keys)
 }
 
 func (m model) viewFiles() string {
 	leftW := m.w/3 - 2
-	rightW := m.w - leftW - 6
+	rightW := m.w - leftW - 7
 
 	// left: file list
 	var listLines []string
@@ -759,7 +760,7 @@ func (m model) viewFiles() string {
 		rightPanel = stylePanelBorder.Width(rightW).Height(m.h - 4).Render(rightContent)
 	}
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
+	return lipgloss.NewStyle().MarginLeft(1).Render(lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel))
 }
 
 func (m model) viewTools() string {
@@ -788,7 +789,11 @@ func (m model) viewTools() string {
 			case compat.Supported && !compat.Deprecated:
 				conceptStr = append(conceptStr, styleBadgeOk+" "+conceptLabels[ci])
 			case compat.Deprecated:
-				conceptStr = append(conceptStr, styleBadgeWarn+" "+conceptLabels[ci])
+				badge := styleBadgeWarn + " " + conceptLabels[ci]
+				if compat.Replacement != "" {
+					badge += lipgloss.NewStyle().Foreground(colorMuted).Render(" (→ " + compat.Replacement + ")")
+				}
+				conceptStr = append(conceptStr, badge)
 			default:
 				conceptStr = append(conceptStr, styleBadgeFail+" "+conceptLabels[ci])
 			}
@@ -805,7 +810,7 @@ func (m model) viewTools() string {
 	}
 
 	content := strings.Join(lines, "\n")
-	return stylePanelBorder.Width(m.w - 2).Height(m.h - 4).Render(content)
+	return stylePanelBorder.Width(m.w - 5).Height(m.h - 4).MarginLeft(1).Render(content)
 }
 
 func (m model) viewSync() string {
@@ -813,11 +818,11 @@ func (m model) viewSync() string {
 	if !m.syncDone && len(m.syncLines) == 0 {
 		header += "\n\nPress [s] to sync canonical → all enabled tool folders."
 	}
-	m.logView.Width = m.w - 4
+	m.logView.Width = m.w - 7
 	m.logView.Height = m.h - 8
 	m.logView.SetContent(strings.Join(m.syncLines, "\n"))
 	content := header + "\n\n" + m.logView.View()
-	return stylePanelBorder.Width(m.w - 2).Height(m.h - 4).Render(content)
+	return stylePanelBorderInset.Width(m.w - 5).Height(m.h - 4).Render(content)
 }
 
 func (m model) overlayDivModal(base string) string {
@@ -888,4 +893,3 @@ func Run(workspace string, adapters []tools.Adapter) error {
 	_, err = p.Run()
 	return err
 }
-
