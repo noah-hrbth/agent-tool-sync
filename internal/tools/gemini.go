@@ -1,7 +1,9 @@
 package tools
 
 import (
+	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/noah-hrbth/agentsync/internal/canonical"
 )
@@ -30,9 +32,12 @@ func (a *geminiAdapter) Alias(concept Concept) string {
 	return ""
 }
 
+func (a *geminiAdapter) Notice() string { return "" }
+
 func (a *geminiAdapter) Render(c *canonical.Canonical) ([]FileWrite, error) {
+	rootContent := buildRootMemoryContent(c.AgentsMD, c.Rules)
 	files := []FileWrite{
-		{Concept: ConceptRules, Path: "GEMINI.md", Content: []byte(c.Rules)},
+		{Concept: ConceptRules, Path: filepath.Join(".gemini", "GEMINI.md"), Content: []byte(rootContent)},
 	}
 
 	for _, skill := range c.Skills {
@@ -74,4 +79,19 @@ func (a *geminiAdapter) Render(c *canonical.Canonical) ([]FileWrite, error) {
 	}
 
 	return files, nil
+}
+
+// buildRootMemoryContent appends canonical rules to the AGENTS.md content, one
+// ## section per rule (filename as heading). Tools without a per-rule directory
+// (Gemini, OpenCode, Codex) use this to produce a single composite memory file.
+func buildRootMemoryContent(agentsMD string, rules []*canonical.Rule) string {
+	if len(rules) == 0 {
+		return agentsMD
+	}
+	var sb strings.Builder
+	sb.WriteString(agentsMD)
+	for _, r := range rules {
+		fmt.Fprintf(&sb, "\n\n## %s\n\n%s", r.Filename, r.Body)
+	}
+	return sb.String()
 }

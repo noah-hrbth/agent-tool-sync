@@ -33,9 +33,22 @@ func (a *claudeAdapter) Alias(concept Concept) string {
 	return ""
 }
 
+func (a *claudeAdapter) Notice() string { return "" }
+
 func (a *claudeAdapter) Render(c *canonical.Canonical) ([]FileWrite, error) {
 	files := []FileWrite{
-		{Concept: ConceptRules, Path: ".claude/CLAUDE.md", Content: []byte(c.Rules)},
+		{Concept: ConceptRules, Path: ".claude/CLAUDE.md", Content: []byte(c.AgentsMD)},
+	}
+
+	for _, r := range c.Rules {
+		content := buildMDFrontmatter([]fmField{
+			{key: "paths", value: r.Paths},
+		}, r.Body)
+		files = append(files, FileWrite{
+			Concept: ConceptRules,
+			Path:    filepath.Join(".claude", "rules", r.Filename+".md"),
+			Content: []byte(content),
+		})
 	}
 
 	for _, skill := range c.Skills {
@@ -44,6 +57,7 @@ func (a *claudeAdapter) Render(c *canonical.Canonical) ([]FileWrite, error) {
 			{key: "description", value: skill.Description},
 			{key: "allowed-tools", value: skill.AllowedTools},
 			{key: "disable-model-invocation", value: skill.DisableModelInvocation},
+			{key: "paths", value: skill.Paths},
 		}, skill.Body)
 		files = append(files, FileWrite{
 			Concept: ConceptSkills,

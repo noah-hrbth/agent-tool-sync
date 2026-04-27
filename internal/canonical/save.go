@@ -9,8 +9,8 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
-// SaveRules writes content to <workspace>/.agentsync/AGENTS.md.
-func SaveRules(workspace, content string) error {
+// SaveAgentsMD writes content to <workspace>/.agentsync/AGENTS.md.
+func SaveAgentsMD(workspace, content string) error {
 	path := filepath.Join(workspace, ".agentsync", "AGENTS.md")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create dir: %w", err)
@@ -21,25 +21,10 @@ func SaveRules(workspace, content string) error {
 // SaveSkill writes a skill's SKILL.md (frontmatter + body) to
 // <workspace>/.agentsync/skills/<dir>/SKILL.md.
 func SaveSkill(workspace string, s *Skill) error {
-	type skillFrontmatter struct {
-		Name                   string   `yaml:"name"`
-		Description            string   `yaml:"description"`
-		AllowedTools           []string `yaml:"allowed-tools,omitempty"`
-		DisableModelInvocation bool     `yaml:"disable-model-invocation,omitempty"`
-	}
-
-	fm := skillFrontmatter{
-		Name:                   s.Name,
-		Description:            s.Description,
-		AllowedTools:           s.AllowedTools,
-		DisableModelInvocation: s.DisableModelInvocation,
-	}
-
-	out, err := marshalFile(fm, s.Body)
+	out, err := RenderSkill(s)
 	if err != nil {
 		return fmt.Errorf("marshal skill %s: %w", s.Dir, err)
 	}
-
 	path := filepath.Join(workspace, ".agentsync", "skills", s.Dir, "SKILL.md")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create dir: %w", err)
@@ -49,25 +34,10 @@ func SaveSkill(workspace string, s *Skill) error {
 
 // SaveAgent writes an agent file to <workspace>/.agentsync/agents/<filename>.md.
 func SaveAgent(workspace string, a *Agent) error {
-	type agentFrontmatter struct {
-		Name        string   `yaml:"name"`
-		Description string   `yaml:"description"`
-		Tools       []string `yaml:"tools,omitempty"`
-		Model       string   `yaml:"model,omitempty"`
-	}
-
-	fm := agentFrontmatter{
-		Name:        a.Name,
-		Description: a.Description,
-		Tools:       a.Tools,
-		Model:       a.Model,
-	}
-
-	out, err := marshalFile(fm, a.Body)
+	out, err := RenderAgent(a)
 	if err != nil {
 		return fmt.Errorf("marshal agent %s: %w", a.Filename, err)
 	}
-
 	path := filepath.Join(workspace, ".agentsync", "agents", a.Filename+".md")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create dir: %w", err)
@@ -77,25 +47,10 @@ func SaveAgent(workspace string, a *Agent) error {
 
 // SaveCommand writes a command file to <workspace>/.agentsync/commands/<filename>.md.
 func SaveCommand(workspace string, cmd *Command) error {
-	type commandFrontmatter struct {
-		Description  string   `yaml:"description"`
-		ArgumentHint string   `yaml:"argument-hint,omitempty"`
-		AllowedTools []string `yaml:"allowed-tools,omitempty"`
-		Model        string   `yaml:"model,omitempty"`
-	}
-
-	fm := commandFrontmatter{
-		Description:  cmd.Description,
-		ArgumentHint: cmd.ArgumentHint,
-		AllowedTools: cmd.AllowedTools,
-		Model:        cmd.Model,
-	}
-
-	out, err := marshalFile(fm, cmd.Body)
+	out, err := RenderCommand(cmd)
 	if err != nil {
 		return fmt.Errorf("marshal command %s: %w", cmd.Filename, err)
 	}
-
 	path := filepath.Join(workspace, ".agentsync", "commands", cmd.Filename+".md")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create dir: %w", err)
@@ -103,8 +58,42 @@ func SaveCommand(workspace string, cmd *Command) error {
 	return os.WriteFile(path, []byte(out), 0o644)
 }
 
-// marshalFile produces a frontmatter + body file string.
-func marshalFile(fm any, body string) (string, error) {
+// SaveRule writes a rule file to <workspace>/.agentsync/rules/<filename>.md.
+func SaveRule(workspace string, r *Rule) error {
+	out, err := RenderRule(r)
+	if err != nil {
+		return fmt.Errorf("marshal rule %s: %w", r.Filename, err)
+	}
+	path := filepath.Join(workspace, ".agentsync", "rules", r.Filename+".md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create dir: %w", err)
+	}
+	return os.WriteFile(path, []byte(out), 0o644)
+}
+
+// RenderSkill serializes a skill to its on-disk format (frontmatter + body).
+func RenderSkill(s *Skill) (string, error) {
+	return renderFile(s, s.Body)
+}
+
+// RenderAgent serializes an agent to its on-disk format (frontmatter + body).
+func RenderAgent(a *Agent) (string, error) {
+	return renderFile(a, a.Body)
+}
+
+// RenderCommand serializes a command to its on-disk format (frontmatter + body).
+func RenderCommand(cmd *Command) (string, error) {
+	return renderFile(cmd, cmd.Body)
+}
+
+// RenderRule serializes a rule to its on-disk format (frontmatter + body).
+func RenderRule(r *Rule) (string, error) {
+	return renderFile(r, r.Body)
+}
+
+// renderFile produces a frontmatter + body file string.
+// fm is marshaled as YAML; fields tagged yaml:"-" are excluded automatically.
+func renderFile(fm any, body string) (string, error) {
 	data, err := yaml.Marshal(fm)
 	if err != nil {
 		return "", err

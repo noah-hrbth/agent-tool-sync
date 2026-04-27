@@ -13,11 +13,10 @@ rm -rf \
   "$SANDBOX/.opencode" \
   "$SANDBOX/.cursor" \
   "$SANDBOX/.gemini" \
-  "$SANDBOX/AGENTS.md" \
-  "$SANDBOX/GEMINI.md"
+  "$SANDBOX/.agents" \
+  "$SANDBOX/.codex"
 
 mkdir -p "$SANDBOX"
 cp -R "$SEED/.agentsync" "$SANDBOX/.agentsync"
-mkdir -p "$SANDBOX/.claude" "$SANDBOX/.opencode" "$SANDBOX/.cursor"
 
 echo "Sandbox reset. Run: make dev"

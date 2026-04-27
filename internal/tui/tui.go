@@ -37,7 +37,8 @@ const (
 type fileKind int
 
 const (
-	kindRules fileKind = iota
+	kindAgentsMD fileKind = iota
+	kindRule
 	kindSkill
 	kindAgent
 	kindCommand
@@ -46,6 +47,7 @@ const (
 type fileItem struct {
 	label   string
 	kind    fileKind
+	rule    *canonical.Rule
 	skill   *canonical.Skill
 	agent   *canonical.Agent
 	command *canonical.Command
@@ -132,7 +134,7 @@ func initialModel(workspace string, c *canonical.Canonical, cfg *config.Config, 
 }
 
 func buildFileItems(c *canonical.Canonical) []fileItem {
-	items := []fileItem{{label: "AGENTS.md  (rules)", kind: kindRules}}
+	items := []fileItem{{label: "AGENTS.md", kind: kindAgentsMD}}
 	for _, s := range c.Skills {
 		items = append(items, fileItem{
 			label: fmt.Sprintf("skills/%s/SKILL.md", s.Dir),
@@ -149,6 +151,12 @@ func buildFileItems(c *canonical.Canonical) []fileItem {
 		items = append(items, fileItem{
 			label: fmt.Sprintf("commands/%s.md", cmd.Filename),
 			kind:  kindCommand, command: cmd,
+		})
+	}
+	for _, r := range c.Rules {
+		items = append(items, fileItem{
+			label: fmt.Sprintf("rules/%s.md", r.Filename),
+			kind:  kindRule, rule: r,
 		})
 	}
 	return items
@@ -172,14 +180,32 @@ func (m *model) fileContent(idx int) string {
 	}
 	f := m.files[idx]
 	switch f.kind {
-	case kindRules:
-		return m.canonical.Rules
+	case kindAgentsMD:
+		return m.canonical.AgentsMD
+	case kindRule:
+		out, err := canonical.RenderRule(f.rule)
+		if err != nil {
+			return f.rule.Body
+		}
+		return out
 	case kindSkill:
-		return f.skill.Body
+		out, err := canonical.RenderSkill(f.skill)
+		if err != nil {
+			return f.skill.Body
+		}
+		return out
 	case kindAgent:
-		return f.agent.Body
+		out, err := canonical.RenderAgent(f.agent)
+		if err != nil {
+			return f.agent.Body
+		}
+		return out
 	case kindCommand:
-		return f.command.Body
+		out, err := canonical.RenderCommand(f.command)
+		if err != nil {
+			return f.command.Body
+		}
+		return out
 	}
 	return ""
 }
@@ -214,11 +240,27 @@ func (m *model) fileStatusIcon(idx int) string {
 
 func matchesFileItem(f fileItem, path string) bool {
 	switch f.kind {
-	case kindRules:
+	case kindAgentsMD:
+		// Cursor's general.mdc is the rendered AGENTS.md catch-all — include it here.
+		if path == ".cursor/rules/general.mdc" {
+			return true
+		}
+		// Root memory files: match by filename, but not paths inside a /rules/ dir
+		// (those are per-rule files, matched by kindRule below).
+		if strings.Contains(path, "/rules/") {
+			return false
+		}
 		return strings.HasSuffix(path, "CLAUDE.md") ||
 			strings.HasSuffix(path, "AGENTS.md") ||
-			strings.HasSuffix(path, "GEMINI.md") ||
-			strings.Contains(path, "general.mdc")
+			strings.HasSuffix(path, "GEMINI.md")
+	case kindRule:
+		if !strings.Contains(path, "/rules/") {
+			return false
+		}
+		base := path[strings.LastIndex(path, "/")+1:]
+		// Strip extension (.md or .mdc) to get the filename slug.
+		slug := strings.TrimSuffix(strings.TrimSuffix(base, ".mdc"), ".md")
+		return slug == f.rule.Filename
 	case kindSkill:
 		return strings.Contains(path, "skills/"+f.skill.Dir+"/")
 	case kindAgent:
@@ -350,8 +392,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "j", "down":
 			m = m.cursorDown()
+			return m, nil
 		case "k", "up":
 			m = m.cursorUp()
+			return m, nil
 		case "e":
 			if m.screen == screenFiles && len(m.files) > 0 {
 				m = m.startEdit()
@@ -373,13 +417,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Update preview content on file selection change
 	m.updatePreview()
 
-	var cmds []tea.Cmd
 	var cmd tea.Cmd
-	m.preview, cmd = m.preview.Update(msg)
-	cmds = append(cmds, cmd)
-	m.logView, cmd = m.logView.Update(msg)
-	cmds = append(cmds, cmd)
-	return m, tea.Batch(cmds...)
+	switch m.screen {
+	case screenFiles:
+		m.preview, cmd = m.preview.Update(msg)
+	case screenSync:
+		m.logView, cmd = m.logView.Update(msg)
+	}
+	return m, cmd
 }
 
 func (m model) updateEditor(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -387,13 +432,12 @@ func (m model) updateEditor(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+s":
-			// save
 			content := m.editor.Value()
-			m.editing = false
 			if err := m.saveCurrentFile(content); err != nil {
 				m.err = err
 				return m, nil
 			}
+			m.editing = false
 			return m, reloadCmd(m.workspace)
 		case "esc":
 			m.editing = false
@@ -554,59 +598,74 @@ func (m model) saveCurrentFile(content string) error {
 	}
 	f := m.files[m.fileIdx]
 	switch f.kind {
-	case kindRules:
-		return canonical.SaveRules(m.workspace, content)
+	case kindAgentsMD:
+		return canonical.SaveAgentsMD(m.workspace, content)
+	case kindRule:
+		if err := canonical.ParseRule(content, f.rule); err != nil {
+			return err
+		}
+		return canonical.SaveRule(m.workspace, f.rule)
 	case kindSkill:
-		f.skill.Body = content
+		if err := canonical.ParseSkill(content, f.skill); err != nil {
+			return err
+		}
 		return canonical.SaveSkill(m.workspace, f.skill)
 	case kindAgent:
-		f.agent.Body = content
+		if err := canonical.ParseAgent(content, f.agent); err != nil {
+			return err
+		}
 		return canonical.SaveAgent(m.workspace, f.agent)
 	case kindCommand:
-		f.command.Body = content
+		if err := canonical.ParseCommand(content, f.command); err != nil {
+			return err
+		}
 		return canonical.SaveCommand(m.workspace, f.command)
 	}
 	return nil
 }
 
 // buildSyncLines formats the sync result as grouped lines: tool > concept > files.
+// Root memory files are shown under "AGENTS.md"; rules-dir files under "rules".
+// Cursor has no "AGENTS.md" subgroup — its general.mdc lives in /rules/.
 func buildSyncLines(result *syncer.SyncResult, adapters []tools.Adapter) []string {
-	conceptOrder := []tools.Concept{tools.ConceptRules, tools.ConceptSkills, tools.ConceptAgents, tools.ConceptCommands}
+	displayOrder := []string{"AGENTS.md", string(tools.ConceptSkills), string(tools.ConceptAgents), string(tools.ConceptCommands), string(tools.ConceptRules)}
 
-	// Index written and skipped by toolName → concept → []path
 	type entry struct {
 		path     string
 		deferred bool
 	}
-	grouped := map[string]map[tools.Concept][]entry{}
-	for _, f := range result.Written {
-		if grouped[f.ToolName] == nil {
-			grouped[f.ToolName] = map[tools.Concept][]entry{}
+	// group: toolName → displayBucket → []entry
+	grouped := map[string]map[string][]entry{}
+
+	addEntry := func(toolName, bucket, path string, deferred bool) {
+		if grouped[toolName] == nil {
+			grouped[toolName] = map[string][]entry{}
 		}
-		grouped[f.ToolName][f.Concept] = append(grouped[f.ToolName][f.Concept], entry{path: f.Path})
+		grouped[toolName][bucket] = append(grouped[toolName][bucket], entry{path: path, deferred: deferred})
+	}
+
+	for _, f := range result.Written {
+		addEntry(f.ToolName, displayConcept(f.Path, f.Concept), f.Path, false)
 	}
 	for _, f := range result.Skipped {
-		if grouped[f.ToolName] == nil {
-			grouped[f.ToolName] = map[tools.Concept][]entry{}
-		}
-		grouped[f.ToolName][f.Concept] = append(grouped[f.ToolName][f.Concept], entry{path: f.Path, deferred: true})
+		addEntry(f.ToolName, displayConcept(f.Path, f.Concept), f.Path, true)
 	}
 
 	var lines []string
 	for _, a := range adapters {
 		name := a.Name()
-		byConceptEntries, ok := grouped[name]
+		byBucket, ok := grouped[name]
 		if !ok {
 			continue
 		}
 		lines = append(lines, "")
 		lines = append(lines, styleSyncToolHeader.Render(name))
-		for _, concept := range conceptOrder {
-			entries, ok := byConceptEntries[concept]
+		for _, bucket := range displayOrder {
+			entries, ok := byBucket[bucket]
 			if !ok {
 				continue
 			}
-			lines = append(lines, "  "+styleSyncConcept.Render(string(concept)))
+			lines = append(lines, "  "+styleSyncConcept.Render(bucket))
 			for _, e := range entries {
 				if e.deferred {
 					lines = append(lines, fmt.Sprintf("    – %s (deferred)", e.path))
@@ -632,6 +691,32 @@ func buildSyncLines(result *syncer.SyncResult, adapters []tools.Adapter) []strin
 	lines = append(lines, "")
 	lines = append(lines, styleSyncSummary.Render(fmt.Sprintf("✓ Synced %d %s", count, noun)))
 	return lines
+}
+
+// displayConcept classifies a synced file path into its display bucket.
+// Root memory files (no /rules/ in path) → "AGENTS.md".
+// Everything else → the raw concept string.
+func displayConcept(path string, concept tools.Concept) string {
+	if concept == tools.ConceptRules && !strings.Contains(path, "/rules/") {
+		return "AGENTS.md"
+	}
+	return string(concept)
+}
+
+// ruleAppendNotice returns a parenthetical label for tools that do not support
+// per-file rules and instead append the rule body to their root memory file.
+// Returns "" for tools that write individual rule files (Claude Code, Cursor).
+func ruleAppendNotice(adapterName string) string {
+	switch adapterName {
+	case "Gemini CLI":
+		return "appended to GEMINI.md"
+	case "OpenCode":
+		return "appended to AGENTS.md"
+	case "Codex CLI":
+		return "appended to AGENTS.md"
+	default:
+		return ""
+	}
 }
 
 // ---- View ----
@@ -685,7 +770,7 @@ func (m model) renderFooter() string {
 	case m.showDiv:
 		keys = "a adopt • o overwrite • d defer • enter apply • esc cancel"
 	case m.screen == screenFiles:
-		keys = "j/k move  •  e edit  •  s sync  •  h/← prev tab  •  l/→ next tab  •  q quit"
+		keys = "j/k move  •  u/d scroll preview  •  e edit  •  s sync  •  h/← prev tab  •  l/→ next tab  •  q quit"
 	case m.screen == screenTools:
 		keys = "j/k move  •  space toggle  •  h/← prev tab  •  l/→ next tab  •  q quit"
 	case m.screen == screenSync:
@@ -694,13 +779,43 @@ func (m model) renderFooter() string {
 	return styleFooter.Render(keys)
 }
 
+// groupHeader returns the section header label for the given fileKind, or an
+// empty string if this kind is the same group as the previous item.
+func groupHeader(prev, cur fileKind) string {
+	if cur == prev {
+		return ""
+	}
+	switch cur {
+	case kindAgentsMD:
+		return "── AGENTS.md ──"
+	case kindSkill:
+		return "── Skills ──"
+	case kindAgent:
+		return "── Subagents ──"
+	case kindCommand:
+		return "── Commands ──"
+	case kindRule:
+		return "── Rules ──"
+	}
+	return ""
+}
+
 func (m model) viewFiles() string {
 	leftW := m.w/3 - 2
 	rightW := m.w - leftW - 7
 
-	// left: file list
+	// left: file list with section headers
 	var listLines []string
+	prevKind := fileKind(-1)
 	for i, f := range m.files {
+		if hdr := groupHeader(prevKind, f.kind); hdr != "" {
+			if prevKind != fileKind(-1) {
+				listLines = append(listLines, "")
+			}
+			listLines = append(listLines, "  "+styleFileGroupHeader.Render(hdr))
+		}
+		prevKind = f.kind
+
 		icon := m.fileStatusIcon(i)
 		var row string
 		if i == m.fileIdx {
@@ -725,7 +840,7 @@ func (m model) viewFiles() string {
 			f := m.files[m.fileIdx]
 			var concept tools.Concept
 			switch f.kind {
-			case kindRules:
+			case kindAgentsMD, kindRule:
 				concept = tools.ConceptRules
 			case kindSkill:
 				concept = tools.ConceptSkills
@@ -739,8 +854,14 @@ func (m model) viewFiles() string {
 				switch {
 				case compat.Supported && !compat.Deprecated:
 					label := a.Name()
-					if alias := a.Alias(concept); alias != "" {
-						label = fmt.Sprintf("%s (%s)", a.Name(), alias)
+					if f.kind == kindRule {
+						if notice := ruleAppendNotice(a.Name()); notice != "" {
+							label = fmt.Sprintf("%s (%s)", a.Name(), notice)
+						}
+					} else {
+						if alias := a.Alias(concept); alias != "" {
+							label = fmt.Sprintf("%s (%s)", a.Name(), alias)
+						}
 					}
 					badges = append(badges, fmt.Sprintf("%s %s", styleBadgeOk, label))
 				case compat.Deprecated:
@@ -807,6 +928,9 @@ func (m model) viewTools() string {
 			row = "  " + fmt.Sprintf("%s  %-14s  %-15s  %s", check, item.adapter.Name(), installed, strings.Join(conceptStr, "  "))
 		}
 		lines = append(lines, row)
+		if note := item.adapter.Notice(); note != "" {
+			lines = append(lines, lipgloss.NewStyle().Foreground(colorMuted).Render("       ↳ "+note))
+		}
 	}
 
 	content := strings.Join(lines, "\n")
@@ -819,7 +943,7 @@ func (m model) viewSync() string {
 		header += "\n\nPress [s] to sync canonical → all enabled tool folders."
 	}
 	m.logView.Width = m.w - 7
-	m.logView.Height = m.h - 8
+	m.logView.Height = m.h - 9
 	m.logView.SetContent(strings.Join(m.syncLines, "\n"))
 	content := header + "\n\n" + m.logView.View()
 	return stylePanelBorderInset.Width(m.w - 5).Height(m.h - 4).Render(content)

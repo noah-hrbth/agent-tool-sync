@@ -1,8 +1,10 @@
 package tools_test
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/noah-hrbth/agentsync/internal/canonical"
 	"github.com/noah-hrbth/agentsync/internal/tools"
 )
 
@@ -96,12 +98,31 @@ func TestAlias(t *testing.T) {
 
 func TestCursorSupportsAllConcepts(t *testing.T) {
 	cursor := tools.All()[2]
+	// ConceptCommands is excluded here because it is deprecated (not unsupported);
+	// its deprecated-specific assertions live in TestCursorCommandsDeprecated.
 	for _, concept := range []tools.Concept{
-		tools.ConceptRules, tools.ConceptSkills, tools.ConceptAgents, tools.ConceptCommands,
+		tools.ConceptRules, tools.ConceptSkills, tools.ConceptAgents,
 	} {
 		if got := cursor.Supports(concept); !got.Supported {
 			t.Errorf("Cursor.Supports(%v): want supported=true, got false (%s)", concept, got.Reason)
 		}
+	}
+}
+
+func TestCursorCommandsDeprecated(t *testing.T) {
+	cursor := tools.All()[2]
+	compat := cursor.Supports(tools.ConceptCommands)
+	if !compat.Supported {
+		t.Error("Cursor commands should be Supported=true (backward-compat)")
+	}
+	if !compat.Deprecated {
+		t.Error("Cursor commands should be Deprecated=true")
+	}
+	if compat.Reason == "" {
+		t.Error("Cursor commands should have a non-empty Reason")
+	}
+	if compat.Replacement != "skills" {
+		t.Errorf("Cursor commands Replacement: got %q, want %q", compat.Replacement, "skills")
 	}
 }
 
@@ -119,6 +140,77 @@ func TestClaudeCommandsDeprecated(t *testing.T) {
 	}
 }
 
+func TestCursorSkillRendersGlobsNotPaths(t *testing.T) {
+	cursor := tools.All()[2]
+
+	c := &canonical.Canonical{
+		Skills: []*canonical.Skill{{
+			Dir:         "path-scoped",
+			Name:        "path-scoped",
+			Description: "test",
+			Paths:       []string{"src/**/*.ts", "lib/**/*.ts"},
+		}},
+	}
+	writes, err := cursor.Render(c)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	var skillWrite *tools.FileWrite
+	for i := range writes {
+		if writes[i].Concept == tools.ConceptSkills {
+			skillWrite = &writes[i]
+			break
+		}
+	}
+	if skillWrite == nil {
+		t.Fatal("no ConceptSkills write found")
+	}
+
+	content := string(skillWrite.Content)
+	if !strings.Contains(content, "globs:") {
+		t.Errorf("expected frontmatter to contain 'globs:', got:\n%s", content)
+	}
+	if strings.Contains(content, "paths:") {
+		t.Errorf("expected frontmatter NOT to contain 'paths:', got:\n%s", content)
+	}
+	for _, glob := range []string{"src/**/*.ts", "lib/**/*.ts"} {
+		if !strings.Contains(content, glob) {
+			t.Errorf("expected glob value %q in output, got:\n%s", glob, content)
+		}
+	}
+}
+
+func TestCursorSkillWithNoPathsOmitsGlobs(t *testing.T) {
+	cursor := tools.All()[2]
+
+	c := &canonical.Canonical{
+		Skills: []*canonical.Skill{{
+			Dir:         "no-paths",
+			Name:        "no-paths",
+			Description: "test",
+		}},
+	}
+	writes, err := cursor.Render(c)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	for _, w := range writes {
+		if w.Concept == tools.ConceptSkills {
+			content := string(w.Content)
+			if strings.Contains(content, "globs:") {
+				t.Errorf("expected no 'globs:' when Paths is empty, got:\n%s", content)
+			}
+			if strings.Contains(content, "paths:") {
+				t.Errorf("expected no 'paths:' when Paths is empty, got:\n%s", content)
+			}
+			return
+		}
+	}
+	t.Fatal("no ConceptSkills write found")
+}
+
 func TestGeminiSupportsAllConcepts(t *testing.T) {
 	gemini := tools.All()[3]
 	for _, concept := range []tools.Concept{
@@ -130,6 +222,116 @@ func TestGeminiSupportsAllConcepts(t *testing.T) {
 		}
 		if compat.Deprecated {
 			t.Errorf("Gemini.Supports(%v): want Deprecated=false, got true", concept)
+		}
+	}
+}
+
+func TestClaudeRuleRendersPerFile(t *testing.T) {
+	claude := tools.All()[0]
+	c := &canonical.Canonical{
+		Rules: []*canonical.Rule{{
+			Filename:    "style-guide",
+			Description: "Style conventions",
+			Paths:       []string{"src/**/*.ts"},
+			Body:        "Use const.\n",
+		}},
+	}
+	writes, err := claude.Render(c)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	var found *tools.FileWrite
+	for i := range writes {
+		if writes[i].Path == ".claude/rules/style-guide.md" {
+			found = &writes[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("expected .claude/rules/style-guide.md in output")
+	}
+	content := string(found.Content)
+	if !strings.Contains(content, "paths: [src/**/*.ts]") {
+		t.Errorf("expected paths field in output:\n%s", content)
+	}
+	if !strings.Contains(content, "Use const.") {
+		t.Errorf("expected body in output:\n%s", content)
+	}
+}
+
+func TestCursorRuleRendersPerFileWithGlobs(t *testing.T) {
+	cursor := tools.All()[2]
+	c := &canonical.Canonical{
+		Rules: []*canonical.Rule{{
+			Filename:    "style-guide",
+			Description: "Style conventions",
+			Paths:       []string{"src/**/*.ts"},
+			Body:        "Use const.\n",
+		}},
+	}
+	writes, err := cursor.Render(c)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	var found *tools.FileWrite
+	for i := range writes {
+		if writes[i].Path == ".cursor/rules/style-guide.mdc" {
+			found = &writes[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("expected .cursor/rules/style-guide.mdc in output")
+	}
+	content := string(found.Content)
+	if !strings.Contains(content, "globs:") {
+		t.Errorf("expected globs field in output:\n%s", content)
+	}
+	if strings.Contains(content, "paths:") {
+		t.Errorf("expected no paths field in output:\n%s", content)
+	}
+	if strings.Contains(content, "alwaysApply:") && strings.Contains(content, "true") {
+		t.Errorf("per-rule .mdc should not have alwaysApply: true:\n%s", content)
+	}
+}
+
+func TestGeminiRuleAppendsToRootMemory(t *testing.T) {
+	gemini := tools.All()[3]
+	c := &canonical.Canonical{
+		AgentsMD: "# Project rules\n",
+		Rules: []*canonical.Rule{{
+			Filename: "style-guide",
+			Body:     "Use const.\n",
+		}},
+	}
+	writes, err := gemini.Render(c)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	var found *tools.FileWrite
+	for i := range writes {
+		if writes[i].Path == ".gemini/GEMINI.md" {
+			found = &writes[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("expected .gemini/GEMINI.md in output")
+	}
+	content := string(found.Content)
+	if !strings.Contains(content, "# Project rules") {
+		t.Errorf("expected AgentsMD content in root file:\n%s", content)
+	}
+	if !strings.Contains(content, "## style-guide") {
+		t.Errorf("expected rule section heading in root file:\n%s", content)
+	}
+	if !strings.Contains(content, "Use const.") {
+		t.Errorf("expected rule body in root file:\n%s", content)
+	}
+	// No separate rule file should exist for Gemini
+	for _, w := range writes {
+		if strings.Contains(w.Path, "rules/") {
+			t.Errorf("unexpected rules-dir file for Gemini: %s", w.Path)
 		}
 	}
 }

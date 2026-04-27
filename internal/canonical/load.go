@@ -10,20 +10,27 @@ import (
 )
 
 // Load reads the .agentsync/ directory under workspace and returns a populated Canonical.
-// Missing AGENTS.md or missing skills/agents/commands directories are not errors.
+// Missing AGENTS.md or missing skills/agents/commands/rules directories are not errors.
 func Load(workspace string) (*Canonical, error) {
 	base := filepath.Join(workspace, ".agentsync")
 
 	c := &Canonical{
 		Workspace: workspace,
+		Rules:     []*Rule{},
 		Skills:    []*Skill{},
 		Agents:    []*Agent{},
 		Commands:  []*Command{},
 	}
 
-	rules, err := loadRules(base)
+	agentsMD, err := loadAgentsMD(base)
 	if err != nil {
 		return nil, fmt.Errorf("load rules: %w", err)
+	}
+	c.AgentsMD = agentsMD
+
+	rules, err := loadRules(base)
+	if err != nil {
+		return nil, fmt.Errorf("load rules folder: %w", err)
 	}
 	c.Rules = rules
 
@@ -48,7 +55,7 @@ func Load(workspace string) (*Canonical, error) {
 	return c, nil
 }
 
-func loadRules(base string) (string, error) {
+func loadAgentsMD(base string) (string, error) {
 	path := filepath.Join(base, "AGENTS.md")
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -58,6 +65,48 @@ func loadRules(base string) (string, error) {
 		return "", err
 	}
 	return string(data), nil
+}
+
+func loadRules(base string) ([]*Rule, error) {
+	dir := filepath.Join(base, "rules")
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return []*Rule{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var rules []*Rule
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+			continue
+		}
+
+		filename := strings.TrimSuffix(entry.Name(), ".md")
+		if filename == "general" {
+			return nil, fmt.Errorf("reserved rule name 'general' — used by Cursor's catch-all .cursor/rules/general.mdc")
+		}
+
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("read rule %s: %w", entry.Name(), err)
+		}
+
+		var r Rule
+		body, err := frontmatter.Parse(strings.NewReader(string(data)), &r)
+		if err != nil {
+			return nil, fmt.Errorf("parse rule %s: %w", entry.Name(), err)
+		}
+		r.Filename = filename
+		r.Body = string(body)
+		rules = append(rules, &r)
+	}
+
+	if rules == nil {
+		return []*Rule{}, nil
+	}
+	return rules, nil
 }
 
 func loadSkills(base string) ([]*Skill, error) {

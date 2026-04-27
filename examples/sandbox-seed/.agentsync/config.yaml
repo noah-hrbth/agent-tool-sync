@@ -2,10 +2,10 @@ tools:
   Claude Code:
     enabled: true
   Codex CLI:
-    enabled: false
+    enabled: true
   Cursor:
     enabled: true
   Gemini CLI:
-    enabled: false
+    enabled: true
   OpenCode:
     enabled: true

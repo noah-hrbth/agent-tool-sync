@@ -57,6 +57,8 @@ var (
 				BorderForeground(colorWarn).
 				Padding(1, 2)
 
+	styleFileGroupHeader = lipgloss.NewStyle().Foreground(colorMuted).Bold(true)
+
 	styleSyncToolHeader = lipgloss.NewStyle().Bold(true).Foreground(colorPrimary)
 	styleSyncConcept    = lipgloss.NewStyle().Foreground(colorMuted)
 	styleSyncSummary    = lipgloss.NewStyle().Bold(true).Foreground(colorSuccess)

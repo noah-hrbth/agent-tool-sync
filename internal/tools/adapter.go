@@ -56,6 +56,11 @@ type Adapter interface {
 	// Alias returns the display filename for the tool's per-concept output when it
 	// differs from the canonical name. Returns an empty string when no alias applies.
 	Alias(concept Concept) string
+
+	// Notice returns an optional informational note about this tool to display in the
+	// TUI tools screen (e.g. a non-obvious path split). Returns an empty string when
+	// there is nothing noteworthy.
+	Notice() string
 }
 
 // detectGlobalDir reports installation when ~/.<name> exists.

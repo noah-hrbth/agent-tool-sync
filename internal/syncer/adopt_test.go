@@ -19,6 +19,7 @@ func buildAdoptWorkspace(t *testing.T) string {
 		".claude/agents",
 		".claude/commands",
 		".cursor/rules",
+		".gemini",
 	} {
 		if err := os.MkdirAll(filepath.Join(ws, dir), 0o755); err != nil {
 			t.Fatal(err)
@@ -50,11 +51,11 @@ func TestAdoptRulesFromClaude(t *testing.T) {
 func TestAdoptRulesFromGemini(t *testing.T) {
 	ws := buildAdoptWorkspace(t)
 	content := "# Gemini edited rules\n"
-	if err := os.WriteFile(filepath.Join(ws, "GEMINI.md"), []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(ws, ".gemini", "GEMINI.md"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := syncer.AdoptExternal(ws, "GEMINI.md"); err != nil {
+	if err := syncer.AdoptExternal(ws, ".gemini/GEMINI.md"); err != nil {
 		t.Fatalf("adopt: %v", err)
 	}
 

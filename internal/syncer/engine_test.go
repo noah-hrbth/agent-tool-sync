@@ -50,7 +50,7 @@ func TestEmptyWorkspaceSync(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if c.Rules == "" {
+	if c.AgentsMD == "" {
 		t.Fatal("expected rules to be loaded")
 	}
 
@@ -72,8 +72,9 @@ func TestEmptyWorkspaceSync(t *testing.T) {
 	checks := []string{
 		// Rules
 		".claude/CLAUDE.md",
-		"AGENTS.md",
-		"GEMINI.md",
+		".codex/AGENTS.md",
+		".opencode/AGENTS.md",
+		".gemini/GEMINI.md",
 		".cursor/rules/general.mdc",
 		// Gemini new concepts
 		".gemini/skills/code-reviewer/SKILL.md",
@@ -191,7 +192,7 @@ func TestRunSyncRespectsSkip(t *testing.T) {
 	}
 
 	// Change canonical rules
-	if err := canonical.SaveRules(ws, "# Modified rules\n"); err != nil {
+	if err := canonical.SaveAgentsMD(ws, "# Modified rules\n"); err != nil {
 		t.Fatalf("save rules: %v", err)
 	}
 	c, _ = canonical.Load(ws)
@@ -391,9 +392,9 @@ func TestDisabledToolFilesNotDeleted(t *testing.T) {
 	}
 
 	// Verify OpenCode's AGENTS.md was written
-	opencodePath := filepath.Join(ws, "AGENTS.md")
+	opencodePath := filepath.Join(ws, ".opencode", "AGENTS.md")
 	if _, err := os.Stat(opencodePath); err != nil {
-		t.Fatalf("expected AGENTS.md after initial sync: %v", err)
+		t.Fatalf("expected .opencode/AGENTS.md after initial sync: %v", err)
 	}
 
 	// Disable OpenCode and sync again
@@ -411,8 +412,8 @@ func TestDisabledToolFilesNotDeleted(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", result.Errors)
 	}
 
-	// AGENTS.md must still exist — disabling a tool must not delete its files
+	// .opencode/AGENTS.md must still exist — disabling a tool must not delete its files
 	if _, err := os.Stat(opencodePath); err != nil {
-		t.Errorf("AGENTS.md was deleted after disabling OpenCode — should be preserved: %v", err)
+		t.Errorf(".opencode/AGENTS.md was deleted after disabling OpenCode — should be preserved: %v", err)
 	}
 }

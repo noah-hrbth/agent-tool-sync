@@ -30,13 +30,13 @@ curl -sSL https://raw.githubusercontent.com/noah-hrbth/agent-tool-sync/main/scri
 
 ## Supported AI tools
 
-| Tool | Rules | Skills | Agents | Commands | Detection |
-|---|---|---|---|---|---|
-| Claude Code | `.claude/CLAUDE.md` | `.claude/skills/<dir>/SKILL.md` | `.claude/agents/<name>.md` | `.claude/commands/<name>.md` | `~/.claude/` |
-| OpenCode | `AGENTS.md` | `.opencode/skills/<dir>/SKILL.md` | `.opencode/agents/<name>.md` | `.opencode/commands/<name>.md` | `~/.opencode/` |
-| Cursor | `.cursor/rules/general.mdc` | `.cursor/skills/<dir>/SKILL.md` | `.cursor/agents/<name>.md` | `.cursor/commands/<name>.md` | `~/.cursor/` |
-| Gemini CLI | `GEMINI.md` | — | — | — | `~/.gemini/` |
-| Codex CLI | `AGENTS.md` | — | — | — | `~/.codex/` |
+| Tool | Root memory | Per-rule files | Skills | Agents | Commands | Detection |
+|---|---|---|---|---|---|---|
+| Claude Code | `.claude/CLAUDE.md` | `.claude/rules/<name>.md` | `.claude/skills/<dir>/SKILL.md` | `.claude/agents/<name>.md` | `.claude/commands/<name>.md ⚠` | `~/.claude/` |
+| OpenCode | `.opencode/AGENTS.md` | appended to root | `.opencode/skills/<dir>/SKILL.md` | `.opencode/agents/<name>.md` | `.opencode/commands/<name>.md` | `~/.opencode/` |
+| Cursor | `.cursor/rules/general.mdc` | `.cursor/rules/<name>.mdc` | `.cursor/skills/<dir>/SKILL.md` | `.cursor/agents/<name>.md` | `.cursor/commands/<name>.md ⚠` | `~/.cursor/` |
+| Gemini CLI | `.gemini/GEMINI.md` | appended to root | `.gemini/skills/<dir>/SKILL.md` | `.gemini/agents/<name>.md` | `.gemini/commands/<name>.toml` | `~/.gemini/` |
+| Codex CLI | `.codex/AGENTS.md` | appended to root | `.agents/skills/<dir>/SKILL.md` | `.codex/agents/<name>.toml` | `⚠ deprecated → skills` | `~/.codex/` |
 
 `AGENTS.md` at the workspace root is shared by OpenCode and Codex CLI — both tools read it natively.
 
@@ -47,7 +47,9 @@ curl -sSL https://raw.githubusercontent.com/noah-hrbth/agent-tool-sync/main/scri
 ```
 .agentsync/
 ├── config.yaml             # per-tool enable/disable
-├── AGENTS.md               # canonical rules (synced to all tools)
+├── AGENTS.md               # root memory file (synced to all tools)
+├── rules/
+│   └── <name>.md           # frontmatter + rule body (per-file where supported)
 ├── skills/
 │   └── <name>/
 │       └── SKILL.md        # frontmatter + instructions
@@ -59,7 +61,21 @@ curl -sSL https://raw.githubusercontent.com/noah-hrbth/agent-tool-sync/main/scri
     └── snapshot.json
 ```
 
+Rules in `.agentsync/rules/` are synced per-file to tools that support a rules directory (Claude Code → `.claude/rules/<name>.md`, Cursor → `.cursor/rules/<name>.mdc`). Tools without a per-rule directory (Gemini CLI, OpenCode, Codex CLI) receive rule bodies appended as `##`-headed sections to their root memory file.
+
+The filename `general` is reserved — it maps to Cursor's `general.mdc` catch-all and cannot be used as a canonical rule name.
+
 ### Frontmatter schemas
+
+**Rules** (`rules/<name>.md`):
+
+```yaml
+---
+description: ...              # optional — what the rule enforces
+paths: [src/**/*.ts]          # optional — Cursor: auto-activate via globs; Claude Code: paths
+---
+Rule body in markdown.
+```
 
 **Skills** (`skills/<name>/SKILL.md`):
 
@@ -69,6 +85,7 @@ name: skill-name              # required, ≤64 chars, lowercase + hyphens
 description: ...              # required, ≤1024 chars — what it does + when to use it
 allowed-tools: [Read, Bash]   # optional
 disable-model-invocation: false  # optional
+paths: [src/**/*.ts]          # optional — auto-activates when matching files are in context
 ---
 Skill instructions in markdown.
 ```
@@ -117,11 +134,25 @@ Command prompt body in markdown.
 | Concept | Claude Code | OpenCode | Cursor | Gemini CLI | Codex CLI |
 |---|---|---|---|---|---|
 | Rules | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Skills | ✓ | ✓ | ✓ | — | — |
-| Agents | ✓ | ✓ | ✓ | — | — |
-| Commands | ✓ | ✓ | ✓ | — | — |
+| Skills | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Agents | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Commands | ⚠ deprecated | ✓ | ⚠ deprecated | ✓ | ⚠ deprecated |
 
 When editing a skill, agent, or command in the TUI, tools that don't support that concept are shown with `✗` and a reason, and are skipped during sync.
+
+### Field translation across tools
+
+| Canonical field | Claude Code | Cursor | OpenCode | Gemini CLI | Codex CLI |
+|---|---|---|---|---|---|
+| `paths` (skill) | `paths:` | `globs:` | — | — | — |
+| `allowed-tools` | `allowed-tools:` | `allowed-tools:` | `allowed-tools:` | — | — |
+| `disable-model-invocation` | `disable-model-invocation:` | `disable-model-invocation:` | `disable-model-invocation:` | — | — |
+| `tools` (agent) | `tools:` | — | `tools:` | `tools:` | — |
+| `model` (agent) | `model:` | `model:` | `model:` | `model:` | `model:` |
+
+`—` means the field is not emitted for that tool (unknown fields are silently ignored by most tools; omitting keeps output minimal).
+
+> **Claude ↔ Cursor `paths`**: Claude Code's skill `paths:` and Cursor's rule `globs:` serve the same purpose — auto-activate on matching files. agentsync emits `paths:` to Claude Code and translates to `globs:` for Cursor. Per-rule `globs:` on the `general.mdc` rules file is a separate roadmap item.
 
 ## CLI reference
 

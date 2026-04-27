@@ -1,3 +1,13 @@
+// TODO(opencode-adapter): Agent schema mismatch — we emit `name` and `tools` as flat frontmatter
+// fields; OpenCode uses the filename as the agent name and wraps tool access in a `permission`
+// object. Missing fields: `mode`, `temperature`, `top_p`, `steps`, `disable`, `hidden`, `color`.
+//
+// TODO(opencode-adapter): Commands schema mismatch — body should be nested under a `template` key;
+// `argument-hint` and `allowed-tools` are Claude-isms that OpenCode does not recognise and ignores.
+//
+// TODO(opencode-adapter): Global detect path mismatch — `detectGlobalDir("opencode")` resolves to
+// `~/.opencode/`; OpenCode follows the XDG standard and actually uses `~/.config/opencode/`.
+
 package tools
 
 import (
@@ -20,9 +30,12 @@ func (a *openCodeAdapter) Supports(concept Concept) Compatibility {
 
 func (a *openCodeAdapter) Alias(_ Concept) string { return "" }
 
+func (a *openCodeAdapter) Notice() string { return "" }
+
 func (a *openCodeAdapter) Render(c *canonical.Canonical) ([]FileWrite, error) {
+	rootContent := buildRootMemoryContent(c.AgentsMD, c.Rules)
 	files := []FileWrite{
-		{Concept: ConceptRules, Path: "AGENTS.md", Content: []byte(c.Rules)},
+		{Concept: ConceptRules, Path: filepath.Join(".opencode", "AGENTS.md"), Content: []byte(rootContent)},
 	}
 
 	for _, skill := range c.Skills {

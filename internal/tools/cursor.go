@@ -15,8 +15,18 @@ func (a *cursorAdapter) Detect(_ string) Installation {
 	return detectGlobalDir("cursor")
 }
 
-func (a *cursorAdapter) Supports(_ Concept) Compatibility {
-	return Compatibility{Supported: true}
+func (a *cursorAdapter) Supports(concept Concept) Compatibility {
+	switch concept {
+	case ConceptCommands:
+		return Compatibility{
+			Supported:   true,
+			Deprecated:  true,
+			Reason:      "Cursor promotes skills as the slash-command surface — prefer skills",
+			Replacement: "skills",
+		}
+	default:
+		return Compatibility{Supported: true}
+	}
 }
 
 func (a *cursorAdapter) Alias(concept Concept) string {
@@ -26,16 +36,32 @@ func (a *cursorAdapter) Alias(concept Concept) string {
 	return ""
 }
 
+func (a *cursorAdapter) Notice() string { return "" }
+
 func (a *cursorAdapter) Render(c *canonical.Canonical) ([]FileWrite, error) {
-	rulesContent := fmt.Sprintf("---\nalwaysApply: true\ndescription: Synced by agentsync\n---\n%s", c.Rules)
+	rulesContent := fmt.Sprintf("---\nalwaysApply: true\n---\n%s", c.AgentsMD)
 	files := []FileWrite{
 		{Concept: ConceptRules, Path: ".cursor/rules/general.mdc", Content: []byte(rulesContent)},
+	}
+
+	for _, r := range c.Rules {
+		content := buildMDFrontmatter([]fmField{
+			{key: "description", value: r.Description},
+			{key: "globs", value: r.Paths},
+			{key: "alwaysApply", value: false},
+		}, r.Body)
+		files = append(files, FileWrite{
+			Concept: ConceptRules,
+			Path:    filepath.Join(".cursor", "rules", r.Filename+".mdc"),
+			Content: []byte(content),
+		})
 	}
 
 	for _, skill := range c.Skills {
 		content := buildMDFrontmatter([]fmField{
 			{key: "name", value: skill.Name},
 			{key: "description", value: skill.Description},
+			{key: "globs", value: skill.Paths},
 			{key: "disable-model-invocation", value: skill.DisableModelInvocation},
 		}, skill.Body)
 		files = append(files, FileWrite{

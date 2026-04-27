@@ -32,9 +32,14 @@ func (a *codexAdapter) Supports(concept Concept) Compatibility {
 
 func (a *codexAdapter) Alias(_ Concept) string { return "" }
 
+func (a *codexAdapter) Notice() string {
+	return "skills are written to ~/.agents/skills/, not ~/.codex/"
+}
+
 func (a *codexAdapter) Render(c *canonical.Canonical) ([]FileWrite, error) {
+	rootContent := buildRootMemoryContent(c.AgentsMD, c.Rules)
 	files := []FileWrite{
-		{Concept: ConceptRules, Path: "AGENTS.md", Content: []byte(c.Rules)},
+		{Concept: ConceptRules, Path: filepath.Join(".codex", "AGENTS.md"), Content: []byte(rootContent)},
 	}
 
 	for _, skill := range c.Skills {

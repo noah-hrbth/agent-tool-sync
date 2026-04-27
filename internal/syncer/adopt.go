@@ -22,8 +22,8 @@ func AdoptExternal(workspace, path string) error {
 	content := string(data)
 
 	switch {
-	case path == ".claude/CLAUDE.md" || path == "AGENTS.md" || path == "GEMINI.md":
-		return canonical.SaveRules(workspace, content)
+	case path == ".claude/CLAUDE.md" || path == ".codex/AGENTS.md" || path == ".opencode/AGENTS.md" || path == ".gemini/GEMINI.md":
+		return canonical.SaveAgentsMD(workspace, content)
 
 	case path == ".cursor/rules/general.mdc":
 		// Strip the frontmatter wrapper added by the Cursor adapter.
@@ -32,7 +32,17 @@ func AdoptExternal(workspace, path string) error {
 		if err != nil {
 			return fmt.Errorf("parse cursor frontmatter: %w", err)
 		}
-		return canonical.SaveRules(workspace, string(rest))
+		return canonical.SaveAgentsMD(workspace, string(rest))
+
+	case matchRulePath(path):
+		var r canonical.Rule
+		body, err := frontmatter.Parse(strings.NewReader(content), &r)
+		if err != nil {
+			return fmt.Errorf("parse rule frontmatter: %w", err)
+		}
+		r.Filename = ruleFilename(path)
+		r.Body = string(body)
+		return canonical.SaveRule(workspace, &r)
 
 	case matchSkillPath(path):
 		var s canonical.Skill
@@ -67,6 +77,27 @@ func AdoptExternal(workspace, path string) error {
 	default:
 		return fmt.Errorf("adopt: no canonical mapping for path %q", path)
 	}
+}
+
+// matchRulePath returns true for per-rule files in tools' rules directories,
+// excluding Cursor's catch-all general.mdc (handled above as AGENTS.md).
+func matchRulePath(path string) bool {
+	if !strings.Contains(path, "/rules/") {
+		return false
+	}
+	base := filepath.Base(path)
+	// general.mdc is the rendered AGENTS.md catch-all; it is NOT a canonical rule.
+	return base != "general.mdc"
+}
+
+// ruleFilename extracts the canonical rule filename (without extension) from a tool path.
+func ruleFilename(path string) string {
+	base := filepath.Base(path)
+	// Strip either .md or .mdc extension.
+	if strings.HasSuffix(base, ".mdc") {
+		return strings.TrimSuffix(base, ".mdc")
+	}
+	return strings.TrimSuffix(base, ".md")
 }
 
 func matchSkillPath(path string) bool {

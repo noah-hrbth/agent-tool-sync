@@ -11,6 +11,43 @@ import (
 	"github.com/noah-hrbth/agentsync/internal/tools"
 )
 
+func TestBuildFileItemsOrder(t *testing.T) {
+	c := &canonical.Canonical{
+		AgentsMD: "# rules",
+		Skills:   []*canonical.Skill{{Dir: "code-review", Name: "code-review", Description: "test"}},
+		Agents:   []*canonical.Agent{{Filename: "explorer", Name: "explorer", Description: "test"}},
+		Commands: []*canonical.Command{{Filename: "commit", Description: "test"}},
+		Rules:    []*canonical.Rule{{Filename: "style-guide", Description: "test"}},
+	}
+	items := buildFileItems(c)
+
+	wantKinds := []fileKind{kindAgentsMD, kindSkill, kindAgent, kindCommand, kindRule}
+	if len(items) != len(wantKinds) {
+		t.Fatalf("buildFileItems: want %d items, got %d", len(wantKinds), len(items))
+	}
+	for i, want := range wantKinds {
+		if items[i].kind != want {
+			t.Errorf("items[%d]: want kind %d, got %d (label=%q)", i, want, items[i].kind, items[i].label)
+		}
+	}
+}
+
+func TestBuildFileItemsNoRulesSection(t *testing.T) {
+	c := &canonical.Canonical{
+		AgentsMD: "# rules",
+		Skills:   []*canonical.Skill{{Dir: "s", Name: "s", Description: "d"}},
+		Agents:   []*canonical.Agent{},
+		Commands: []*canonical.Command{},
+		Rules:    []*canonical.Rule{},
+	}
+	items := buildFileItems(c)
+	for _, item := range items {
+		if item.kind == kindRule {
+			t.Error("expected no kindRule items when c.Rules is empty")
+		}
+	}
+}
+
 func TestSmoke(t *testing.T) {
 	ws := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(ws, ".agentsync"), 0o755); err != nil {
