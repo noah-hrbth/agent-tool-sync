@@ -5,15 +5,11 @@ Maintain AI tool configs in one place and sync them to Claude Code, OpenCode, Cu
 ## Install
 
 ```bash
-# macOS / Homebrew
-brew install noah-hrbth/agentsync/agentsync
-
-# Any OS — install script
-curl -sSL https://raw.githubusercontent.com/noah-hrbth/agent-tool-sync/main/scripts/install.sh | sh
-
 # Manual download
 # GitHub Releases: https://github.com/noah-hrbth/agent-tool-sync/releases
 ```
+
+> Homebrew tap and install script are planned but not yet available.
 
 ## Quickstart
 
@@ -167,21 +163,16 @@ Flags:
   --workspace <path>           Target directory (default: current directory)
 ```
 
-## Roadmap
-
-- More tools: Windsurf, Continue.dev, Cline, Roo Code, GitHub Copilot, JetBrains Junie, Crush, Goose, Amazon Q, Kilo Code, Aider, Zed, Cody
-- Bidirectional sync with `agentsync pull`
-- File watcher / `--watch` flag
-- AGENTS.md standard frontmatter extensions for skills/agents/commands
-
 ## Contributing — adding a new tool
 
-The adapter interface is defined in [`internal/tools/adapter.go`](internal/tools/adapter.go) and has four methods:
+The adapter interface is defined in [`internal/tools/adapter.go`](internal/tools/adapter.go) and has six methods:
 
-- `Name()` — returns the tool's display name
-- `Detect(workspace string) bool` — reports whether the tool is present in the workspace
-- `Supports(concept string) bool` — reports whether the tool supports a given concept (rules/skills/agents/commands)
-- `Render(canonical *canonical.Source, workspace string) error` — writes the tool's native files from the canonical source
+- `Name() string` — returns the tool's display name
+- `Detect(workspace string) Installation` — reports whether the tool is installed (via `~/.<tool>`)
+- `Supports(concept Concept) Compatibility` — reports whether the tool supports a given concept, with deprecation and reason metadata
+- `Render(c *canonical.Canonical) ([]FileWrite, error)` — produces workspace-relative files to write from the canonical source
+- `Alias(concept Concept) string` — returns a display filename when it differs from the canonical name (empty string otherwise)
+- `Notice() string` — returns an optional informational note shown in the TUI tools screen (empty string otherwise)
 
 See [`internal/tools/claude.go`](internal/tools/claude.go) for a reference implementation.
 
