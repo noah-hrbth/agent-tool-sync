@@ -8,6 +8,7 @@ func All() []Adapter {
 		&cursorAdapter{},
 		&geminiAdapter{},
 		&codexAdapter{},
+		&zedAdapter{},
 	}
 }
 

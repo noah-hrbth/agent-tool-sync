@@ -9,3 +9,5 @@ tools:
     enabled: true
   OpenCode:
     enabled: true
+  Zed:
+    enabled: true

@@ -82,6 +82,19 @@ func TestAlias(t *testing.T) {
 				{tools.ConceptCommands, ""},
 			},
 		},
+		{
+			name:    "Zed",
+			adapter: tools.All()[5],
+			cases: []struct {
+				concept tools.Concept
+				want    string
+			}{
+				{tools.ConceptRules, ".rules"},
+				{tools.ConceptSkills, ""},
+				{tools.ConceptAgents, ""},
+				{tools.ConceptCommands, ""},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -360,5 +373,99 @@ func TestCodexCommandsDeprecated(t *testing.T) {
 	}
 	if cmdCompat.Reason == "" {
 		t.Error("Codex commands should have a non-empty Reason")
+	}
+}
+
+func TestZedSupportsMatrix(t *testing.T) {
+	zed := tools.All()[5]
+
+	if compat := zed.Supports(tools.ConceptRules); !compat.Supported {
+		t.Errorf("Zed.Supports(Rules): want supported=true, got false (%s)", compat.Reason)
+	}
+
+	for _, concept := range []tools.Concept{tools.ConceptSkills, tools.ConceptAgents, tools.ConceptCommands} {
+		compat := zed.Supports(concept)
+		if compat.Supported {
+			t.Errorf("Zed.Supports(%v): want supported=false, got true", concept)
+		}
+		if compat.Reason == "" {
+			t.Errorf("Zed.Supports(%v): expected non-empty Reason for unsupported concept", concept)
+		}
+	}
+}
+
+func TestZedRuleAppendsToRootMemory(t *testing.T) {
+	zed := tools.All()[5]
+	c := &canonical.Canonical{
+		AgentsMD: "# Project rules\n",
+		Rules: []*canonical.Rule{{
+			Filename: "style-guide",
+			Body:     "Use const.\n",
+		}},
+	}
+	writes, err := zed.Render(c)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	var found *tools.FileWrite
+	for i := range writes {
+		if writes[i].Path == ".rules" {
+			found = &writes[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("expected .rules at workspace root in output")
+	}
+	content := string(found.Content)
+	if !strings.Contains(content, "# Project rules") {
+		t.Errorf("expected AgentsMD content in .rules:\n%s", content)
+	}
+	if !strings.Contains(content, "## style-guide") {
+		t.Errorf("expected rule section heading in .rules:\n%s", content)
+	}
+	if !strings.Contains(content, "Use const.") {
+		t.Errorf("expected rule body in .rules:\n%s", content)
+	}
+}
+
+func TestZedDoesNotEmitSkillsAgentsCommands(t *testing.T) {
+	zed := tools.All()[5]
+	c := &canonical.Canonical{
+		AgentsMD: "# Memory\n",
+		Skills: []*canonical.Skill{{
+			Dir:         "demo",
+			Name:        "demo",
+			Description: "test",
+		}},
+		Agents: []*canonical.Agent{{
+			Filename:    "reviewer",
+			Name:        "reviewer",
+			Description: "test",
+		}},
+		Commands: []*canonical.Command{{
+			Filename:    "do-thing",
+			Description: "test",
+		}},
+	}
+	writes, err := zed.Render(c)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if len(writes) != 1 {
+		t.Fatalf("expected exactly 1 FileWrite (rules only), got %d", len(writes))
+	}
+	if writes[0].Path != ".rules" {
+		t.Errorf("expected sole write to .rules, got %q", writes[0].Path)
+	}
+	if writes[0].Concept != tools.ConceptRules {
+		t.Errorf("expected Concept=Rules, got %q", writes[0].Concept)
+	}
+}
+
+func TestZedNotice(t *testing.T) {
+	zed := tools.All()[5]
+	if zed.Notice() == "" {
+		t.Error("Zed.Notice() should be non-empty — both rules-at-root and unsupported concepts warrant TUI surfacing")
 	}
 }

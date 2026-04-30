@@ -75,3 +75,16 @@ func detectGlobalDir(name string) Installation {
 	}
 	return Installation{}
 }
+
+// detectConfigDir reports installation when ~/.config/<name>/ exists (XDG-style).
+func detectConfigDir(name string) Installation {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return Installation{}
+	}
+	dir := filepath.Join(home, ".config", name)
+	if _, err := os.Stat(dir); err == nil {
+		return Installation{Found: true, Path: dir}
+	}
+	return Installation{}
+}

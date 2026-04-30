@@ -4,9 +4,6 @@
 //
 // TODO(opencode-adapter): Commands schema mismatch — body should be nested under a `template` key;
 // `argument-hint` and `allowed-tools` are Claude-isms that OpenCode does not recognise and ignores.
-//
-// TODO(opencode-adapter): Global detect path mismatch — `detectGlobalDir("opencode")` resolves to
-// `~/.opencode/`; OpenCode follows the XDG standard and actually uses `~/.config/opencode/`.
 
 package tools
 
@@ -21,6 +18,9 @@ type openCodeAdapter struct{}
 func (a *openCodeAdapter) Name() string { return "OpenCode" }
 
 func (a *openCodeAdapter) Detect(_ string) Installation {
+	if inst := detectConfigDir("opencode"); inst.Found {
+		return inst
+	}
 	return detectGlobalDir("opencode")
 }
 

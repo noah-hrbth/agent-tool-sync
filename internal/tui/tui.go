@@ -714,6 +714,8 @@ func ruleAppendNotice(adapterName string) string {
 		return "appended to AGENTS.md"
 	case "Codex CLI":
 		return "appended to AGENTS.md"
+	case "Zed":
+		return "appended to .rules"
 	default:
 		return ""
 	}

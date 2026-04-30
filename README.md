@@ -1,6 +1,6 @@
 # agentsync
 
-Maintain AI tool configs in one place and sync them to Claude Code, OpenCode, Cursor, Gemini CLI, and Codex CLI.
+Maintain AI tool configs in one place and sync them to Claude Code, OpenCode, Cursor, Gemini CLI, Codex CLI, and Zed.
 
 ## Install
 
@@ -33,8 +33,11 @@ Maintain AI tool configs in one place and sync them to Claude Code, OpenCode, Cu
 | Cursor | `.cursor/rules/general.mdc` | `.cursor/rules/<name>.mdc` | `.cursor/skills/<dir>/SKILL.md` | `.cursor/agents/<name>.md` | `.cursor/commands/<name>.md ⚠` | `~/.cursor/` |
 | Gemini CLI | `.gemini/GEMINI.md` | appended to root | `.gemini/skills/<dir>/SKILL.md` | `.gemini/agents/<name>.md` | `.gemini/commands/<name>.toml` | `~/.gemini/` |
 | Codex CLI | `.codex/AGENTS.md` | appended to root | `.agents/skills/<dir>/SKILL.md` | `.codex/agents/<name>.toml` | `⚠ deprecated → skills` | `~/.codex/` |
+| Zed | `.rules` (workspace root) | appended to root | — | — | — | `~/.config/zed/` |
 
 `AGENTS.md` at the workspace root is shared by OpenCode and Codex CLI — both tools read it natively.
+
+Zed reads its rules file from the workspace root, so `.rules` lands there instead of in a tool-namespaced folder. Zed has no native concept for skills, file-defined agents, or user-defined slash commands; agentsync skips those for Zed.
 
 `—` means the tool doesn't support that concept. `agentsync` skips those files and shows a compatibility badge in the TUI.
 
@@ -127,24 +130,24 @@ Command prompt body in markdown.
 
 ## Concept compatibility
 
-| Concept | Claude Code | OpenCode | Cursor | Gemini CLI | Codex CLI |
-|---|---|---|---|---|---|
-| Rules | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Skills | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Agents | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Commands | ⚠ deprecated | ✓ | ⚠ deprecated | ✓ | ⚠ deprecated |
+| Concept | Claude Code | OpenCode | Cursor | Gemini CLI | Codex CLI | Zed |
+|---|---|---|---|---|---|---|
+| Rules | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Skills | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Agents | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Commands | ⚠ deprecated | ✓ | ⚠ deprecated | ✓ | ⚠ deprecated | ✗ |
 
 When editing a skill, agent, or command in the TUI, tools that don't support that concept are shown with `✗` and a reason, and are skipped during sync.
 
 ### Field translation across tools
 
-| Canonical field | Claude Code | Cursor | OpenCode | Gemini CLI | Codex CLI |
-|---|---|---|---|---|---|
-| `paths` (skill) | `paths:` | `globs:` | — | — | — |
-| `allowed-tools` | `allowed-tools:` | `allowed-tools:` | `allowed-tools:` | — | — |
-| `disable-model-invocation` | `disable-model-invocation:` | `disable-model-invocation:` | `disable-model-invocation:` | — | — |
-| `tools` (agent) | `tools:` | — | `tools:` | `tools:` | — |
-| `model` (agent) | `model:` | `model:` | `model:` | `model:` | `model:` |
+| Canonical field | Claude Code | Cursor | OpenCode | Gemini CLI | Codex CLI | Zed |
+|---|---|---|---|---|---|---|
+| `paths` (skill) | `paths:` | `globs:` | — | — | — | — |
+| `allowed-tools` | `allowed-tools:` | `allowed-tools:` | `allowed-tools:` | — | — | — |
+| `disable-model-invocation` | `disable-model-invocation:` | `disable-model-invocation:` | `disable-model-invocation:` | — | — | — |
+| `tools` (agent) | `tools:` | — | `tools:` | `tools:` | — | — |
+| `model` (agent) | `model:` | `model:` | `model:` | `model:` | `model:` | — |
 
 `—` means the field is not emitted for that tool (unknown fields are silently ignored by most tools; omitting keeps output minimal).
 
@@ -168,7 +171,7 @@ Flags:
 The adapter interface is defined in [`internal/tools/adapter.go`](internal/tools/adapter.go) and has six methods:
 
 - `Name() string` — returns the tool's display name
-- `Detect(workspace string) Installation` — reports whether the tool is installed (via `~/.<tool>`)
+- `Detect(workspace string) Installation` — reports whether the tool is installed (helpers: `detectGlobalDir` for `~/.<tool>`, `detectConfigDir` for `~/.config/<tool>/`)
 - `Supports(concept Concept) Compatibility` — reports whether the tool supports a given concept, with deprecation and reason metadata
 - `Render(c *canonical.Canonical) ([]FileWrite, error)` — produces workspace-relative files to write from the canonical source
 - `Alias(concept Concept) string` — returns a display filename when it differs from the canonical name (empty string otherwise)

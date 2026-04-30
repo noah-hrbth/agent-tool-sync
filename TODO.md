@@ -18,7 +18,6 @@
 - [ ] Amazon Q
 - [ ] Kilo Code
 - [ ] Aider
-- [ ] Zed
 - [ ] Cody
 
 ## Features

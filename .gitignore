@@ -17,6 +17,7 @@ examples/sandbox/.cursor/
 examples/sandbox/.gemini/
 examples/sandbox/AGENTS.md
 examples/sandbox/GEMINI.md
+examples/sandbox/.rules
 
 # OS
 .DS_Store
