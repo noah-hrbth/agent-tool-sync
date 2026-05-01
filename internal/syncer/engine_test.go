@@ -70,11 +70,10 @@ func TestEmptyWorkspaceSync(t *testing.T) {
 
 	// Verify key output files exist and contain the canonical rules
 	checks := []string{
-		// Rules
-		".claude/CLAUDE.md",
-		".codex/AGENTS.md",
-		".opencode/AGENTS.md",
-		".gemini/GEMINI.md",
+		// Rules — root memory files at workspace root (auto-discovered by each CLI)
+		"CLAUDE.md",
+		"AGENTS.md",
+		"GEMINI.md",
 		".cursor/rules/general.mdc",
 		// Gemini new concepts
 		".gemini/skills/code-reviewer/SKILL.md",
@@ -151,8 +150,8 @@ func TestDivergenceDetection(t *testing.T) {
 		t.Fatalf("initial sync: %v", err)
 	}
 
-	// Externally edit .claude/CLAUDE.md
-	claudePath := filepath.Join(ws, ".claude", "CLAUDE.md")
+	// Externally edit CLAUDE.md
+	claudePath := filepath.Join(ws, "CLAUDE.md")
 	if err := os.WriteFile(claudePath, []byte("# Externally edited\n"), 0o644); err != nil {
 		t.Fatalf("external edit: %v", err)
 	}
@@ -165,12 +164,12 @@ func TestDivergenceDetection(t *testing.T) {
 
 	found := false
 	for _, r := range results {
-		if r.Path == ".claude/CLAUDE.md" && r.Status == syncer.StatusDivergent {
+		if r.Path == "CLAUDE.md" && r.Status == syncer.StatusDivergent {
 			found = true
 		}
 	}
 	if !found {
-		t.Error("expected .claude/CLAUDE.md to be StatusDivergent after external edit")
+		t.Error("expected CLAUDE.md to be StatusDivergent after external edit")
 	}
 }
 
@@ -186,7 +185,7 @@ func TestRunSyncRespectsSkip(t *testing.T) {
 		t.Fatalf("initial sync: %v", err)
 	}
 
-	originalContent, err := os.ReadFile(filepath.Join(ws, ".claude", "CLAUDE.md"))
+	originalContent, err := os.ReadFile(filepath.Join(ws, "CLAUDE.md"))
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -197,25 +196,25 @@ func TestRunSyncRespectsSkip(t *testing.T) {
 	}
 	c, _ = canonical.Load(ws)
 
-	// Sync with .claude/CLAUDE.md in skip
-	result, err := syncer.RunSync(ws, c, adapters, cfg, tools.ScopeProject, syncer.SyncOptions{Skip: map[string]bool{".claude/CLAUDE.md": true}})
+	// Sync with CLAUDE.md in skip
+	result, err := syncer.RunSync(ws, c, adapters, cfg, tools.ScopeProject, syncer.SyncOptions{Skip: map[string]bool{"CLAUDE.md": true}})
 	if err != nil {
 		t.Fatalf("skip sync: %v", err)
 	}
 
 	found := false
 	for _, f := range result.Skipped {
-		if f.Path == ".claude/CLAUDE.md" {
+		if f.Path == "CLAUDE.md" {
 			found = true
 		}
 	}
 	if !found {
-		t.Error("expected .claude/CLAUDE.md in result.Skipped")
+		t.Error("expected CLAUDE.md in result.Skipped")
 	}
 
-	afterContent, _ := os.ReadFile(filepath.Join(ws, ".claude", "CLAUDE.md"))
+	afterContent, _ := os.ReadFile(filepath.Join(ws, "CLAUDE.md"))
 	if string(afterContent) != string(originalContent) {
-		t.Error("expected .claude/CLAUDE.md content unchanged after skip")
+		t.Error("expected CLAUDE.md content unchanged after skip")
 	}
 }
 
@@ -464,10 +463,12 @@ func TestDisabledToolFilesNotDeleted(t *testing.T) {
 		t.Fatalf("initial sync: %v", err)
 	}
 
-	// Verify OpenCode's AGENTS.md was written
-	opencodePath := filepath.Join(ws, ".opencode", "AGENTS.md")
-	if _, err := os.Stat(opencodePath); err != nil {
-		t.Fatalf("expected .opencode/AGENTS.md after initial sync: %v", err)
+	// Verify an OpenCode-exclusive file was written. We check the skill output
+	// (rather than AGENTS.md, which is shared at workspace root with Codex) so the
+	// orphan-cleanup behavior for disabling OpenCode is observable.
+	opencodeSkill := filepath.Join(ws, ".opencode", "skills", "code-reviewer", "SKILL.md")
+	if _, err := os.Stat(opencodeSkill); err != nil {
+		t.Fatalf("expected %s after initial sync: %v", opencodeSkill, err)
 	}
 
 	// Disable OpenCode and sync again
@@ -485,8 +486,8 @@ func TestDisabledToolFilesNotDeleted(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", result.Errors)
 	}
 
-	// .opencode/AGENTS.md must still exist — disabling a tool must not delete its files
-	if _, err := os.Stat(opencodePath); err != nil {
-		t.Errorf(".opencode/AGENTS.md was deleted after disabling OpenCode — should be preserved: %v", err)
+	// .opencode/skills/<dir>/SKILL.md must still exist — disabling a tool must not delete its files
+	if _, err := os.Stat(opencodeSkill); err != nil {
+		t.Errorf("%s was deleted after disabling OpenCode — should be preserved: %v", opencodeSkill, err)
 	}
 }

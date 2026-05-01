@@ -49,8 +49,14 @@ func openCodeBase(scope Scope) string {
 func (a *openCodeAdapter) Render(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	base := openCodeBase(scope)
 	rootContent := buildRootMemoryContent(c.AgentsMD, c.Rules)
+	// OpenCode reads AGENTS.md from the workspace root (and parent dirs) at project
+	// scope; user scope reads from ~/.config/opencode/AGENTS.md.
+	rootPath := "AGENTS.md"
+	if scope == ScopeUser {
+		rootPath = filepath.Join(base, "AGENTS.md")
+	}
 	files := []FileWrite{
-		{Concept: ConceptRules, Path: filepath.Join(base, "AGENTS.md"), Content: []byte(rootContent)},
+		{Concept: ConceptRules, Path: rootPath, Content: []byte(rootContent)},
 	}
 
 	for _, skill := range c.Skills {

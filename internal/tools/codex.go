@@ -42,8 +42,14 @@ func (a *codexAdapter) Notice() string {
 
 func (a *codexAdapter) Render(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	rootContent := buildRootMemoryContent(c.AgentsMD, c.Rules)
+	// Codex CLI reads AGENTS.md from the workspace root (and parent dirs) at project
+	// scope; user scope reads from ~/.codex/AGENTS.md.
+	rootPath := "AGENTS.md"
+	if scope == ScopeUser {
+		rootPath = filepath.Join(".codex", "AGENTS.md")
+	}
 	files := []FileWrite{
-		{Concept: ConceptRules, Path: filepath.Join(".codex", "AGENTS.md"), Content: []byte(rootContent)},
+		{Concept: ConceptRules, Path: rootPath, Content: []byte(rootContent)},
 	}
 
 	// Project skills live at .agents/skills/ (auto-scanned by Codex from cwd to repo root).

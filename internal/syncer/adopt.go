@@ -22,10 +22,13 @@ func AdoptExternal(workspace, path string) error {
 	content := string(data)
 
 	switch {
-	case path == ".claude/CLAUDE.md" ||
+	case path == "CLAUDE.md" ||
+		path == ".claude/CLAUDE.md" ||
+		path == "AGENTS.md" ||
 		path == ".codex/AGENTS.md" ||
 		path == ".opencode/AGENTS.md" ||
 		path == ".config/opencode/AGENTS.md" ||
+		path == "GEMINI.md" ||
 		path == ".gemini/GEMINI.md":
 		return canonical.SaveAgentsMD(workspace, content)
 

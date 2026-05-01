@@ -38,10 +38,16 @@ func (a *geminiAdapter) Alias(concept Concept) string {
 
 func (a *geminiAdapter) Notice() string { return "" }
 
-func (a *geminiAdapter) Render(c *canonical.Canonical, _ Scope) ([]FileWrite, error) {
+func (a *geminiAdapter) Render(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	rootContent := buildRootMemoryContent(c.AgentsMD, c.Rules)
+	// Gemini CLI reads GEMINI.md from the workspace root (and parent dirs) at project
+	// scope; user scope reads from ~/.gemini/GEMINI.md.
+	rootPath := "GEMINI.md"
+	if scope == ScopeUser {
+		rootPath = filepath.Join(".gemini", "GEMINI.md")
+	}
 	files := []FileWrite{
-		{Concept: ConceptRules, Path: filepath.Join(".gemini", "GEMINI.md"), Content: []byte(rootContent)},
+		{Concept: ConceptRules, Path: rootPath, Content: []byte(rootContent)},
 	}
 
 	for _, skill := range c.Skills {

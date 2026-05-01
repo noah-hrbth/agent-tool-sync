@@ -323,13 +323,13 @@ func TestGeminiRuleAppendsToRootMemory(t *testing.T) {
 	}
 	var found *tools.FileWrite
 	for i := range writes {
-		if writes[i].Path == ".gemini/GEMINI.md" {
+		if writes[i].Path == "GEMINI.md" {
 			found = &writes[i]
 			break
 		}
 	}
 	if found == nil {
-		t.Fatal("expected .gemini/GEMINI.md in output")
+		t.Fatal("expected GEMINI.md at workspace root in output")
 	}
 	content := string(found.Content)
 	if !strings.Contains(content, "# Project rules") {
@@ -502,26 +502,67 @@ func TestUserScopeRendersDifferentPaths(t *testing.T) {
 		Skills:   []*canonical.Skill{{Dir: "demo", Name: "demo", Description: "test"}},
 	}
 
-	// OpenCode: project = .opencode/, user = .config/opencode/
+	// Claude: project memory = CLAUDE.md (workspace root), user memory = .claude/CLAUDE.md
+	claude := tools.All()[0]
+	claudeProject, _ := claude.Render(c, tools.ScopeProject)
+	claudeUser, _ := claude.Render(c, tools.ScopeUser)
+	if !containsPath(claudeProject, "CLAUDE.md") {
+		t.Error("Claude project: expected CLAUDE.md at workspace root")
+	}
+	if containsPath(claudeProject, ".claude/CLAUDE.md") {
+		t.Error("Claude project: did not expect .claude/CLAUDE.md (that's the user-scope path)")
+	}
+	if !containsPath(claudeUser, ".claude/CLAUDE.md") {
+		t.Error("Claude user: expected .claude/CLAUDE.md")
+	}
+
+	// OpenCode: project root memory = AGENTS.md (workspace root), user = .config/opencode/AGENTS.md
 	openCode := tools.All()[1]
 	projectWrites, _ := openCode.Render(c, tools.ScopeProject)
 	userWrites, _ := openCode.Render(c, tools.ScopeUser)
-	if !containsPath(projectWrites, ".opencode/AGENTS.md") {
-		t.Error("OpenCode project: expected .opencode/AGENTS.md")
+	if !containsPath(projectWrites, "AGENTS.md") {
+		t.Error("OpenCode project: expected AGENTS.md at workspace root")
+	}
+	if containsPath(projectWrites, ".opencode/AGENTS.md") {
+		t.Error("OpenCode project: did not expect .opencode/AGENTS.md (CLI does not read that path)")
 	}
 	if !containsPath(userWrites, ".config/opencode/AGENTS.md") {
 		t.Error("OpenCode user: expected .config/opencode/AGENTS.md")
 	}
 
-	// Codex: project skills = .agents/skills/, user skills = .codex/skills/
+	// Codex: project root memory = AGENTS.md (workspace root), user = .codex/AGENTS.md
+	// Project skills = .agents/skills/, user skills = .codex/skills/
 	codex := tools.All()[4]
 	codexProject, _ := codex.Render(c, tools.ScopeProject)
 	codexUser, _ := codex.Render(c, tools.ScopeUser)
+	if !containsPath(codexProject, "AGENTS.md") {
+		t.Error("Codex project: expected AGENTS.md at workspace root")
+	}
+	if containsPath(codexProject, ".codex/AGENTS.md") {
+		t.Error("Codex project: did not expect .codex/AGENTS.md (CLI does not read that path)")
+	}
+	if !containsPath(codexUser, ".codex/AGENTS.md") {
+		t.Error("Codex user: expected .codex/AGENTS.md")
+	}
 	if !containsPath(codexProject, ".agents/skills/demo/SKILL.md") {
 		t.Error("Codex project skills: expected .agents/skills/demo/SKILL.md")
 	}
 	if !containsPath(codexUser, ".codex/skills/demo/SKILL.md") {
 		t.Error("Codex user skills: expected .codex/skills/demo/SKILL.md")
+	}
+
+	// Gemini: project root memory = GEMINI.md (workspace root), user = .gemini/GEMINI.md
+	gemini := tools.All()[3]
+	geminiProject, _ := gemini.Render(c, tools.ScopeProject)
+	geminiUser, _ := gemini.Render(c, tools.ScopeUser)
+	if !containsPath(geminiProject, "GEMINI.md") {
+		t.Error("Gemini project: expected GEMINI.md at workspace root")
+	}
+	if containsPath(geminiProject, ".gemini/GEMINI.md") {
+		t.Error("Gemini project: did not expect .gemini/GEMINI.md (CLI does not read that path)")
+	}
+	if !containsPath(geminiUser, ".gemini/GEMINI.md") {
+		t.Error("Gemini user: expected .gemini/GEMINI.md")
 	}
 }
 

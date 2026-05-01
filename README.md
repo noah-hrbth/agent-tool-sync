@@ -56,18 +56,20 @@ The two layers stack: each tool reads its user-level config plus any project-lev
 - **Zed** — has no global rules file (project-root `.rules` only)
 
 **Tools whose user-scope output path differs from project scope:**
-- **OpenCode** — writes to `~/.config/opencode/` at user scope (vs. `.opencode/` at project scope)
-- **Codex CLI** — user-scope skills go to `~/.codex/skills/` (vs. project-scope `.agents/skills/` for cross-tool sharing)
+- **Claude Code** — root memory writes to `<workspace>/CLAUDE.md` at project scope (auto-discovered up the tree) and `~/.claude/CLAUDE.md` at user scope
+- **OpenCode** — root memory at `<workspace>/AGENTS.md` (project) vs `~/.config/opencode/AGENTS.md` (user); skills/agents/commands at `.opencode/` vs `~/.config/opencode/`
+- **Gemini CLI** — root memory at `<workspace>/GEMINI.md` (project) vs `~/.gemini/GEMINI.md` (user)
+- **Codex CLI** — root memory at `<workspace>/AGENTS.md` (project) vs `~/.codex/AGENTS.md` (user); user-scope skills go to `~/.codex/skills/` (vs. project-scope `.agents/skills/` for cross-tool sharing)
 
 ## Supported AI tools
 
 | Tool | Root memory | Per-rule files | Skills | Agents | Commands | Detection |
 |---|---|---|---|---|---|---|
-| Claude Code | `.claude/CLAUDE.md` | `.claude/rules/<name>.md` | `.claude/skills/<dir>/SKILL.md` | `.claude/agents/<name>.md` | `.claude/commands/<name>.md ⚠` | `~/.claude/` |
-| OpenCode | `.opencode/AGENTS.md` | appended to root | `.opencode/skills/<dir>/SKILL.md` | `.opencode/agents/<name>.md` | `.opencode/commands/<name>.md` | `~/.opencode/` |
+| Claude Code | `CLAUDE.md` (workspace root; `~/.claude/CLAUDE.md` at user scope) | `.claude/rules/<name>.md` | `.claude/skills/<dir>/SKILL.md` | `.claude/agents/<name>.md` | `.claude/commands/<name>.md ⚠` | `~/.claude/` |
+| OpenCode | `AGENTS.md` (workspace root; `~/.config/opencode/AGENTS.md` at user scope) | appended to root | `.opencode/skills/<dir>/SKILL.md` | `.opencode/agents/<name>.md` | `.opencode/commands/<name>.md` | `~/.opencode/` |
 | Cursor | `.cursor/rules/general.mdc` | `.cursor/rules/<name>.mdc` | `.cursor/skills/<dir>/SKILL.md` | `.cursor/agents/<name>.md` | `.cursor/commands/<name>.md ⚠` | `~/.cursor/` |
-| Gemini CLI | `.gemini/GEMINI.md` | appended to root | `.gemini/skills/<dir>/SKILL.md` | `.gemini/agents/<name>.md` | `.gemini/commands/<name>.toml` | `~/.gemini/` |
-| Codex CLI | `.codex/AGENTS.md` | appended to root | `.agents/skills/<dir>/SKILL.md` | `.codex/agents/<name>.toml` | `⚠ deprecated → skills` | `~/.codex/` |
+| Gemini CLI | `GEMINI.md` (workspace root; `~/.gemini/GEMINI.md` at user scope) | appended to root | `.gemini/skills/<dir>/SKILL.md` | `.gemini/agents/<name>.md` | `.gemini/commands/<name>.toml` | `~/.gemini/` |
+| Codex CLI | `AGENTS.md` (workspace root; `~/.codex/AGENTS.md` at user scope) | appended to root | `.agents/skills/<dir>/SKILL.md` | `.codex/agents/<name>.toml` | `⚠ deprecated → skills` | `~/.codex/` |
 | Zed | `.rules` (workspace root) | appended to root | — | — | — | `~/.config/zed/` |
 
 `AGENTS.md` at the workspace root is shared by OpenCode and Codex CLI — both tools read it natively.

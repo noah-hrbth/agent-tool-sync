@@ -39,9 +39,15 @@ func (a *claudeAdapter) Alias(concept Concept) string {
 
 func (a *claudeAdapter) Notice() string { return "" }
 
-func (a *claudeAdapter) Render(c *canonical.Canonical, _ Scope) ([]FileWrite, error) {
+func (a *claudeAdapter) Render(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
+	// Project memory lives at <workspace>/CLAUDE.md (auto-discovered by Claude Code
+	// from cwd up the tree). User memory lives at ~/.claude/CLAUDE.md.
+	rootPath := "CLAUDE.md"
+	if scope == ScopeUser {
+		rootPath = filepath.Join(".claude", "CLAUDE.md")
+	}
 	files := []FileWrite{
-		{Concept: ConceptRules, Path: ".claude/CLAUDE.md", Content: []byte(c.AgentsMD)},
+		{Concept: ConceptRules, Path: rootPath, Content: []byte(c.AgentsMD)},
 	}
 
 	for _, r := range c.Rules {
