@@ -8,10 +8,12 @@ Maintain AI tool configs in one place and sync them to Claude Code, OpenCode, Cu
 
 ```bash
 brew tap noah-hrbth/agentsync
-brew install agentsync
+brew install --cask agentsync
 ```
 
-Upgrade with `brew update && brew upgrade agentsync`.
+Homebrew 4.x falls through `brew install agentsync` to the cask automatically; older versions need the explicit `--cask` flag.
+
+Upgrade with `brew update && brew upgrade --cask agentsync`.
 
 ### Manual download (macOS, Linux, Windows)
 
