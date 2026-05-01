@@ -26,6 +26,10 @@ func (a *claudeAdapter) Supports(concept Concept) Compatibility {
 	return Compatibility{Supported: true}
 }
 
+func (a *claudeAdapter) SupportsScope(_ Scope) Compatibility {
+	return Compatibility{Supported: true}
+}
+
 func (a *claudeAdapter) Alias(concept Concept) string {
 	if concept == ConceptRules {
 		return "CLAUDE.md"
@@ -35,7 +39,7 @@ func (a *claudeAdapter) Alias(concept Concept) string {
 
 func (a *claudeAdapter) Notice() string { return "" }
 
-func (a *claudeAdapter) Render(c *canonical.Canonical) ([]FileWrite, error) {
+func (a *claudeAdapter) Render(c *canonical.Canonical, _ Scope) ([]FileWrite, error) {
 	files := []FileWrite{
 		{Concept: ConceptRules, Path: ".claude/CLAUDE.md", Content: []byte(c.AgentsMD)},
 	}

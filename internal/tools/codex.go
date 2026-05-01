@@ -30,18 +30,28 @@ func (a *codexAdapter) Supports(concept Concept) Compatibility {
 	}
 }
 
+func (a *codexAdapter) SupportsScope(_ Scope) Compatibility {
+	return Compatibility{Supported: true}
+}
+
 func (a *codexAdapter) Alias(_ Concept) string { return "" }
 
 func (a *codexAdapter) Notice() string {
-	return "skills are written to ~/.agents/skills/, not ~/.codex/"
+	return "project skills are written to .agents/skills/ (cross-tool), user skills to ~/.codex/skills/"
 }
 
-func (a *codexAdapter) Render(c *canonical.Canonical) ([]FileWrite, error) {
+func (a *codexAdapter) Render(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	rootContent := buildRootMemoryContent(c.AgentsMD, c.Rules)
 	files := []FileWrite{
 		{Concept: ConceptRules, Path: filepath.Join(".codex", "AGENTS.md"), Content: []byte(rootContent)},
 	}
 
+	// Project skills live at .agents/skills/ (auto-scanned by Codex from cwd to repo root).
+	// User skills live at ~/.codex/skills/ (per Codex docs).
+	skillBase := ".agents"
+	if scope == ScopeUser {
+		skillBase = ".codex"
+	}
 	for _, skill := range c.Skills {
 		content := buildMDFrontmatter([]fmField{
 			{key: "name", value: skill.Name},
@@ -49,7 +59,7 @@ func (a *codexAdapter) Render(c *canonical.Canonical) ([]FileWrite, error) {
 		}, skill.Body)
 		files = append(files, FileWrite{
 			Concept: ConceptSkills,
-			Path:    filepath.Join(".agents", "skills", skill.Dir, "SKILL.md"),
+			Path:    filepath.Join(skillBase, "skills", skill.Dir, "SKILL.md"),
 			Content: []byte(content),
 		})
 	}

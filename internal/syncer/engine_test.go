@@ -57,7 +57,7 @@ func TestEmptyWorkspaceSync(t *testing.T) {
 	adapters := tools.All()
 	cfg := config.Default(tools.Names())
 
-	result, err := syncer.RunSync(ws, c, adapters, cfg, syncer.SyncOptions{})
+	result, err := syncer.RunSync(ws, c, adapters, cfg, tools.ScopeProject, syncer.SyncOptions{})
 	if err != nil {
 		t.Fatalf("sync: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestStatusAfterSync(t *testing.T) {
 	cfg := config.Default(tools.Names())
 
 	// Before sync: all files should be StatusNew
-	results, err := syncer.Status(ws, c, adapters, cfg)
+	results, err := syncer.Status(ws, c, adapters, cfg, tools.ScopeProject)
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
@@ -124,11 +124,11 @@ func TestStatusAfterSync(t *testing.T) {
 	}
 
 	// After sync: all files should be StatusSynced
-	if _, err := syncer.RunSync(ws, c, adapters, cfg, syncer.SyncOptions{}); err != nil {
+	if _, err := syncer.RunSync(ws, c, adapters, cfg, tools.ScopeProject, syncer.SyncOptions{}); err != nil {
 		t.Fatalf("sync: %v", err)
 	}
 
-	results, err = syncer.Status(ws, c, adapters, cfg)
+	results, err = syncer.Status(ws, c, adapters, cfg, tools.ScopeProject)
 	if err != nil {
 		t.Fatalf("status after sync: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestDivergenceDetection(t *testing.T) {
 	cfg := config.Default(tools.Names())
 
 	// Sync once to establish snapshot
-	if _, err := syncer.RunSync(ws, c, adapters, cfg, syncer.SyncOptions{}); err != nil {
+	if _, err := syncer.RunSync(ws, c, adapters, cfg, tools.ScopeProject, syncer.SyncOptions{}); err != nil {
 		t.Fatalf("initial sync: %v", err)
 	}
 
@@ -158,7 +158,7 @@ func TestDivergenceDetection(t *testing.T) {
 	}
 
 	// Status should now report divergence for that file
-	results, err := syncer.Status(ws, c, adapters, cfg)
+	results, err := syncer.Status(ws, c, adapters, cfg, tools.ScopeProject)
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestRunSyncRespectsSkip(t *testing.T) {
 	cfg := config.Default(tools.Names())
 
 	// Initial sync to establish snapshot
-	if _, err := syncer.RunSync(ws, c, adapters, cfg, syncer.SyncOptions{}); err != nil {
+	if _, err := syncer.RunSync(ws, c, adapters, cfg, tools.ScopeProject, syncer.SyncOptions{}); err != nil {
 		t.Fatalf("initial sync: %v", err)
 	}
 
@@ -198,7 +198,7 @@ func TestRunSyncRespectsSkip(t *testing.T) {
 	c, _ = canonical.Load(ws)
 
 	// Sync with .claude/CLAUDE.md in skip
-	result, err := syncer.RunSync(ws, c, adapters, cfg, syncer.SyncOptions{Skip: map[string]bool{".claude/CLAUDE.md": true}})
+	result, err := syncer.RunSync(ws, c, adapters, cfg, tools.ScopeProject, syncer.SyncOptions{Skip: map[string]bool{".claude/CLAUDE.md": true}})
 	if err != nil {
 		t.Fatalf("skip sync: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestPartialInstall(t *testing.T) {
 		cfg.Tools[name] = config.ToolConfig{Enabled: name == "Claude Code" || name == "Cursor"}
 	}
 
-	result, err := syncer.RunSync(ws, c, tools.All(), cfg, syncer.SyncOptions{})
+	result, err := syncer.RunSync(ws, c, tools.All(), cfg, tools.ScopeProject, syncer.SyncOptions{})
 	if err != nil {
 		t.Fatalf("sync: %v", err)
 	}
@@ -289,7 +289,7 @@ func TestOrphanCleanupSafeDelete(t *testing.T) {
 	cfg := config.Default(tools.Names())
 
 	// Initial sync to establish snapshot
-	if _, err := syncer.RunSync(ws, c, adapters, cfg, syncer.SyncOptions{}); err != nil {
+	if _, err := syncer.RunSync(ws, c, adapters, cfg, tools.ScopeProject, syncer.SyncOptions{}); err != nil {
 		t.Fatalf("initial sync: %v", err)
 	}
 
@@ -313,7 +313,7 @@ func TestOrphanCleanupSafeDelete(t *testing.T) {
 	writeSnapshot(t, ws, snap)
 
 	// Re-sync: orphan should be deleted (hash matches snapshot)
-	result, err := syncer.RunSync(ws, c, adapters, cfg, syncer.SyncOptions{})
+	result, err := syncer.RunSync(ws, c, adapters, cfg, tools.ScopeProject, syncer.SyncOptions{})
 	if err != nil {
 		t.Fatalf("sync: %v", err)
 	}
@@ -333,7 +333,7 @@ func TestOrphanCleanupDivergentPreserved(t *testing.T) {
 	cfg := config.Default(tools.Names())
 
 	// Initial sync
-	if _, err := syncer.RunSync(ws, c, adapters, cfg, syncer.SyncOptions{}); err != nil {
+	if _, err := syncer.RunSync(ws, c, adapters, cfg, tools.ScopeProject, syncer.SyncOptions{}); err != nil {
 		t.Fatalf("initial sync: %v", err)
 	}
 
@@ -358,7 +358,7 @@ func TestOrphanCleanupDivergentPreserved(t *testing.T) {
 	writeSnapshot(t, ws, snap)
 
 	// Re-sync: orphan should be preserved (hash mismatch = user edits)
-	result, err := syncer.RunSync(ws, c, adapters, cfg, syncer.SyncOptions{})
+	result, err := syncer.RunSync(ws, c, adapters, cfg, tools.ScopeProject, syncer.SyncOptions{})
 	if err != nil {
 		t.Fatalf("sync: %v", err)
 	}
@@ -379,6 +379,79 @@ func TestOrphanCleanupDivergentPreserved(t *testing.T) {
 	}
 }
 
+func TestUserScopeSkipsCursorAndZed(t *testing.T) {
+	ws := copyScenario(t, "empty-workspace")
+
+	c, _ := canonical.Load(ws)
+	adapters := tools.All()
+	cfg := config.Default(tools.Names())
+
+	result, err := syncer.RunSync(ws, c, adapters, cfg, tools.ScopeUser, syncer.SyncOptions{})
+	if err != nil {
+		t.Fatalf("user-scope sync: %v", err)
+	}
+	if len(result.Errors) > 0 {
+		t.Fatalf("unexpected errors: %v", result.Errors)
+	}
+
+	for _, f := range result.Written {
+		if f.ToolName == "Cursor" {
+			t.Errorf("Cursor wrote %s at user scope (should skip)", f.Path)
+		}
+		if f.ToolName == "Zed" {
+			t.Errorf("Zed wrote %s at user scope (should skip)", f.Path)
+		}
+	}
+
+	// Confirm OpenCode wrote to the user-scope path .config/opencode/AGENTS.md.
+	if _, err := os.Stat(filepath.Join(ws, ".config", "opencode", "AGENTS.md")); err != nil {
+		t.Errorf("expected .config/opencode/AGENTS.md at user scope: %v", err)
+	}
+	// Confirm Codex skills landed under .codex/skills/ (not .agents/skills/) at user scope.
+	codexSkills := filepath.Join(ws, ".codex", "skills")
+	if _, err := os.Stat(codexSkills); err != nil {
+		t.Errorf("expected .codex/skills/ at user scope: %v", err)
+	}
+}
+
+func TestPerScopeSnapshotIsolation(t *testing.T) {
+	// Simulate two different bases (one project root, one fake home dir) sharing
+	// the same canonical content. Snapshots must be independent so a project-scope
+	// orphan-cleanup pass doesn't disturb user-scope tracking.
+	projectWS := copyScenario(t, "empty-workspace")
+	userWS := copyScenario(t, "empty-workspace")
+
+	pc, _ := canonical.Load(projectWS)
+	uc, _ := canonical.Load(userWS)
+	adapters := tools.All()
+	cfg := config.Default(tools.Names())
+
+	if _, err := syncer.RunSync(projectWS, pc, adapters, cfg, tools.ScopeProject, syncer.SyncOptions{}); err != nil {
+		t.Fatalf("project sync: %v", err)
+	}
+	if _, err := syncer.RunSync(userWS, uc, adapters, cfg, tools.ScopeUser, syncer.SyncOptions{}); err != nil {
+		t.Fatalf("user sync: %v", err)
+	}
+
+	// Each base owns its own snapshot file.
+	for _, base := range []string{projectWS, userWS} {
+		if _, err := os.Stat(filepath.Join(base, ".agentsync", ".state", "snapshot.json")); err != nil {
+			t.Errorf("missing snapshot at %s: %v", base, err)
+		}
+	}
+
+	// Re-running project sync must not error or touch user-scope files.
+	userOpencodePath := filepath.Join(userWS, ".config", "opencode", "AGENTS.md")
+	before, _ := os.ReadFile(userOpencodePath)
+	if _, err := syncer.RunSync(projectWS, pc, adapters, cfg, tools.ScopeProject, syncer.SyncOptions{}); err != nil {
+		t.Fatalf("re-sync project: %v", err)
+	}
+	after, _ := os.ReadFile(userOpencodePath)
+	if string(before) != string(after) {
+		t.Error("project re-sync mutated user-scope file — snapshots not isolated")
+	}
+}
+
 func TestDisabledToolFilesNotDeleted(t *testing.T) {
 	ws := copyScenario(t, "empty-workspace")
 
@@ -387,7 +460,7 @@ func TestDisabledToolFilesNotDeleted(t *testing.T) {
 	cfg := config.Default(tools.Names())
 
 	// Initial sync with all tools enabled
-	if _, err := syncer.RunSync(ws, c, adapters, cfg, syncer.SyncOptions{}); err != nil {
+	if _, err := syncer.RunSync(ws, c, adapters, cfg, tools.ScopeProject, syncer.SyncOptions{}); err != nil {
 		t.Fatalf("initial sync: %v", err)
 	}
 
@@ -404,7 +477,7 @@ func TestDisabledToolFilesNotDeleted(t *testing.T) {
 		}
 	}
 
-	result, err := syncer.RunSync(ws, c, adapters, cfg, syncer.SyncOptions{})
+	result, err := syncer.RunSync(ws, c, adapters, cfg, tools.ScopeProject, syncer.SyncOptions{})
 	if err != nil {
 		t.Fatalf("second sync: %v", err)
 	}

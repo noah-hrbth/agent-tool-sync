@@ -28,14 +28,29 @@ func (a *openCodeAdapter) Supports(concept Concept) Compatibility {
 	return Compatibility{Supported: true}
 }
 
+func (a *openCodeAdapter) SupportsScope(_ Scope) Compatibility {
+	return Compatibility{Supported: true}
+}
+
 func (a *openCodeAdapter) Alias(_ Concept) string { return "" }
 
 func (a *openCodeAdapter) Notice() string { return "" }
 
-func (a *openCodeAdapter) Render(c *canonical.Canonical) ([]FileWrite, error) {
+// openCodeBase returns the path prefix relative to the scope's base directory.
+// Project scope: .opencode/. User scope: .config/opencode/ (OpenCode docs:
+// "global rules in a ~/.config/opencode/AGENTS.md").
+func openCodeBase(scope Scope) string {
+	if scope == ScopeUser {
+		return filepath.Join(".config", "opencode")
+	}
+	return ".opencode"
+}
+
+func (a *openCodeAdapter) Render(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
+	base := openCodeBase(scope)
 	rootContent := buildRootMemoryContent(c.AgentsMD, c.Rules)
 	files := []FileWrite{
-		{Concept: ConceptRules, Path: filepath.Join(".opencode", "AGENTS.md"), Content: []byte(rootContent)},
+		{Concept: ConceptRules, Path: filepath.Join(base, "AGENTS.md"), Content: []byte(rootContent)},
 	}
 
 	for _, skill := range c.Skills {
@@ -47,7 +62,7 @@ func (a *openCodeAdapter) Render(c *canonical.Canonical) ([]FileWrite, error) {
 		}, skill.Body)
 		files = append(files, FileWrite{
 			Concept: ConceptSkills,
-			Path:    filepath.Join(".opencode", "skills", skill.Dir, "SKILL.md"),
+			Path:    filepath.Join(base, "skills", skill.Dir, "SKILL.md"),
 			Content: []byte(content),
 		})
 	}
@@ -61,7 +76,7 @@ func (a *openCodeAdapter) Render(c *canonical.Canonical) ([]FileWrite, error) {
 		}, agent.Body)
 		files = append(files, FileWrite{
 			Concept: ConceptAgents,
-			Path:    filepath.Join(".opencode", "agents", agent.Filename+".md"),
+			Path:    filepath.Join(base, "agents", agent.Filename+".md"),
 			Content: []byte(content),
 		})
 	}
@@ -75,7 +90,7 @@ func (a *openCodeAdapter) Render(c *canonical.Canonical) ([]FileWrite, error) {
 		}, cmd.Body)
 		files = append(files, FileWrite{
 			Concept: ConceptCommands,
-			Path:    filepath.Join(".opencode", "commands", cmd.Filename+".md"),
+			Path:    filepath.Join(base, "commands", cmd.Filename+".md"),
 			Content: []byte(content),
 		})
 	}

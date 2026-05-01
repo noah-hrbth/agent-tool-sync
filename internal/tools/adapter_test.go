@@ -164,7 +164,7 @@ func TestCursorSkillRendersGlobsNotPaths(t *testing.T) {
 			Paths:       []string{"src/**/*.ts", "lib/**/*.ts"},
 		}},
 	}
-	writes, err := cursor.Render(c)
+	writes, err := cursor.Render(c, tools.ScopeProject)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestCursorSkillWithNoPathsOmitsGlobs(t *testing.T) {
 			Description: "test",
 		}},
 	}
-	writes, err := cursor.Render(c)
+	writes, err := cursor.Render(c, tools.ScopeProject)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestClaudeRuleRendersPerFile(t *testing.T) {
 			Body:        "Use const.\n",
 		}},
 	}
-	writes, err := claude.Render(c)
+	writes, err := claude.Render(c, tools.ScopeProject)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -282,7 +282,7 @@ func TestCursorRuleRendersPerFileWithGlobs(t *testing.T) {
 			Body:        "Use const.\n",
 		}},
 	}
-	writes, err := cursor.Render(c)
+	writes, err := cursor.Render(c, tools.ScopeProject)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -317,7 +317,7 @@ func TestGeminiRuleAppendsToRootMemory(t *testing.T) {
 			Body:     "Use const.\n",
 		}},
 	}
-	writes, err := gemini.Render(c)
+	writes, err := gemini.Render(c, tools.ScopeProject)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -403,7 +403,7 @@ func TestZedRuleAppendsToRootMemory(t *testing.T) {
 			Body:     "Use const.\n",
 		}},
 	}
-	writes, err := zed.Render(c)
+	writes, err := zed.Render(c, tools.ScopeProject)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -448,7 +448,7 @@ func TestZedDoesNotEmitSkillsAgentsCommands(t *testing.T) {
 			Description: "test",
 		}},
 	}
-	writes, err := zed.Render(c)
+	writes, err := zed.Render(c, tools.ScopeProject)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -461,6 +461,97 @@ func TestZedDoesNotEmitSkillsAgentsCommands(t *testing.T) {
 	if writes[0].Concept != tools.ConceptRules {
 		t.Errorf("expected Concept=Rules, got %q", writes[0].Concept)
 	}
+}
+
+func TestSupportsScope(t *testing.T) {
+	cases := []struct {
+		toolName        string
+		userSupported   bool
+	}{
+		{"Claude Code", true},
+		{"OpenCode", true},
+		{"Cursor", false},
+		{"Gemini CLI", true},
+		{"Codex CLI", true},
+		{"Zed", false},
+	}
+	byName := map[string]tools.Adapter{}
+	for _, a := range tools.All() {
+		byName[a.Name()] = a
+	}
+	for _, c := range cases {
+		t.Run(c.toolName, func(t *testing.T) {
+			a := byName[c.toolName]
+			if got := a.SupportsScope(tools.ScopeProject); !got.Supported {
+				t.Errorf("SupportsScope(Project) for %s: want true, got false", c.toolName)
+			}
+			got := a.SupportsScope(tools.ScopeUser)
+			if got.Supported != c.userSupported {
+				t.Errorf("SupportsScope(User) for %s: want %v, got %v", c.toolName, c.userSupported, got.Supported)
+			}
+			if !c.userSupported && got.Reason == "" {
+				t.Errorf("SupportsScope(User) for %s: expected non-empty Reason for unsupported scope", c.toolName)
+			}
+		})
+	}
+}
+
+func TestUserScopeRendersDifferentPaths(t *testing.T) {
+	c := &canonical.Canonical{
+		AgentsMD: "# rules",
+		Skills:   []*canonical.Skill{{Dir: "demo", Name: "demo", Description: "test"}},
+	}
+
+	// OpenCode: project = .opencode/, user = .config/opencode/
+	openCode := tools.All()[1]
+	projectWrites, _ := openCode.Render(c, tools.ScopeProject)
+	userWrites, _ := openCode.Render(c, tools.ScopeUser)
+	if !containsPath(projectWrites, ".opencode/AGENTS.md") {
+		t.Error("OpenCode project: expected .opencode/AGENTS.md")
+	}
+	if !containsPath(userWrites, ".config/opencode/AGENTS.md") {
+		t.Error("OpenCode user: expected .config/opencode/AGENTS.md")
+	}
+
+	// Codex: project skills = .agents/skills/, user skills = .codex/skills/
+	codex := tools.All()[4]
+	codexProject, _ := codex.Render(c, tools.ScopeProject)
+	codexUser, _ := codex.Render(c, tools.ScopeUser)
+	if !containsPath(codexProject, ".agents/skills/demo/SKILL.md") {
+		t.Error("Codex project skills: expected .agents/skills/demo/SKILL.md")
+	}
+	if !containsPath(codexUser, ".codex/skills/demo/SKILL.md") {
+		t.Error("Codex user skills: expected .codex/skills/demo/SKILL.md")
+	}
+}
+
+func TestUserScopeUnsupportedRendersEmpty(t *testing.T) {
+	c := &canonical.Canonical{AgentsMD: "# rules"}
+	for _, name := range []string{"Cursor", "Zed"} {
+		var a tools.Adapter
+		for _, candidate := range tools.All() {
+			if candidate.Name() == name {
+				a = candidate
+				break
+			}
+		}
+		writes, err := a.Render(c, tools.ScopeUser)
+		if err != nil {
+			t.Errorf("%s.Render(User): unexpected error %v", name, err)
+		}
+		if len(writes) != 0 {
+			t.Errorf("%s.Render(User): expected 0 writes, got %d", name, len(writes))
+		}
+	}
+}
+
+func containsPath(writes []tools.FileWrite, path string) bool {
+	for _, w := range writes {
+		if w.Path == path {
+			return true
+		}
+	}
+	return false
 }
 
 func TestZedNotice(t *testing.T) {

@@ -16,17 +16,20 @@ import (
 
 var version = "dev"
 
-var workspace string
+var (
+	workspace  string
+	globalFlag bool
+)
 
 var rootCmd = &cobra.Command{
 	Use:   "agentsync",
 	Short: "Sync agent configs across Claude Code, Cursor, OpenCode, and more",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ws, err := resolveWorkspace()
+		ws, scope, err := resolveBase()
 		if err != nil {
 			return err
 		}
-		return tui.Run(ws, tools.All())
+		return tui.Run(ws, scope, tools.All())
 	},
 }
 
@@ -58,17 +61,31 @@ var versionCmd = &cobra.Command{
 
 func main() {
 	rootCmd.PersistentFlags().StringVar(&workspace, "workspace", "", "path to workspace (default: current directory)")
+	rootCmd.PersistentFlags().BoolVarP(&globalFlag, "global", "g", false, "operate at user scope (canonical at ~/.agentsync, syncs to user-level tool dirs)")
 	rootCmd.AddCommand(initCmd, syncCmd, statusCmd, versionCmd)
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
 }
 
-func resolveWorkspace() (string, error) {
-	if workspace != "" {
-		return workspace, nil
+// resolveBase returns the base directory and scope for the current invocation.
+// --global and --workspace are mutually exclusive. Default is project scope at cwd.
+func resolveBase() (string, tools.Scope, error) {
+	if globalFlag && workspace != "" {
+		return "", tools.ScopeProject, fmt.Errorf("--global and --workspace are mutually exclusive")
 	}
-	return os.Getwd()
+	if globalFlag {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", tools.ScopeUser, err
+		}
+		return home, tools.ScopeUser, nil
+	}
+	if workspace != "" {
+		return workspace, tools.ScopeProject, nil
+	}
+	cwd, err := os.Getwd()
+	return cwd, tools.ScopeProject, err
 }
 
 func loadState(ws string) (*canonical.Canonical, *config.Config, error) {
@@ -84,13 +101,13 @@ func loadState(ws string) (*canonical.Canonical, *config.Config, error) {
 }
 
 func runInit(cmd *cobra.Command, _ []string) error {
-	ws, err := resolveWorkspace()
+	ws, scope, err := resolveBase()
 	if err != nil {
 		return err
 	}
 
 	base := ws + "/.agentsync"
-	for _, dir := range []string{base, base + "/skills", base + "/agents", base + "/commands", base + "/.state"} {
+	for _, dir := range []string{base, base + "/skills", base + "/agents", base + "/commands", base + "/rules", base + "/.state"} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
@@ -100,6 +117,10 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	if _, err := os.Stat(agentsPath); os.IsNotExist(err) {
 		starter := "# Project Rules\n\nAdd your AI agent instructions here.\n" +
 			"This file is synced to all enabled AI tools by agentsync.\n"
+		if scope == tools.ScopeUser {
+			starter = "# User Rules\n\nPersonal AI agent instructions applied across all your projects.\n" +
+				"This file is synced to user-level tool config dirs (~/.claude, ~/.codex, etc.) by agentsync.\n"
+		}
 		if err := os.WriteFile(agentsPath, []byte(starter), 0o644); err != nil {
 			return err
 		}
@@ -110,13 +131,17 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	fmt.Printf("Initialized .agentsync/ in %s\n", ws)
-	fmt.Println("Edit .agentsync/AGENTS.md, then run 'agentsync sync' or launch the TUI with 'agentsync'.")
+	fmt.Printf("Initialized .agentsync/ in %s (scope: %s)\n", ws, scope)
+	if scope == tools.ScopeUser {
+		fmt.Println("Edit ~/.agentsync/AGENTS.md, then run 'agentsync sync --global' or launch the TUI with 'agentsync --global'.")
+	} else {
+		fmt.Println("Edit .agentsync/AGENTS.md, then run 'agentsync sync' or launch the TUI with 'agentsync'.")
+	}
 	return nil
 }
 
 func runSync(cmd *cobra.Command, _ []string) error {
-	ws, err := resolveWorkspace()
+	ws, scope, err := resolveBase()
 	if err != nil {
 		return err
 	}
@@ -126,7 +151,7 @@ func runSync(cmd *cobra.Command, _ []string) error {
 	}
 
 	adapters := tools.All()
-	results, err := syncer.Status(ws, c, adapters, cfg)
+	results, err := syncer.Status(ws, c, adapters, cfg, scope)
 	if err != nil {
 		return fmt.Errorf("status check: %w", err)
 	}
@@ -146,7 +171,7 @@ func runSync(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("unresolved divergences")
 	}
 
-	result, err := syncer.RunSync(ws, c, adapters, cfg, syncer.SyncOptions{})
+	result, err := syncer.RunSync(ws, c, adapters, cfg, scope, syncer.SyncOptions{})
 	if err != nil {
 		return err
 	}
@@ -168,7 +193,7 @@ func runSync(cmd *cobra.Command, _ []string) error {
 }
 
 func runStatus(cmd *cobra.Command, _ []string) error {
-	ws, err := resolveWorkspace()
+	ws, scope, err := resolveBase()
 	if err != nil {
 		return err
 	}
@@ -177,7 +202,7 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	results, err := syncer.Status(ws, c, tools.All(), cfg)
+	results, err := syncer.Status(ws, c, tools.All(), cfg, scope)
 	if err != nil {
 		return err
 	}

@@ -29,6 +29,13 @@ func (a *cursorAdapter) Supports(concept Concept) Compatibility {
 	}
 }
 
+func (a *cursorAdapter) SupportsScope(scope Scope) Compatibility {
+	if scope == ScopeUser {
+		return Compatibility{Supported: false, Reason: "Cursor user rules are managed in the Settings UI, not files"}
+	}
+	return Compatibility{Supported: true}
+}
+
 func (a *cursorAdapter) Alias(concept Concept) string {
 	if concept == ConceptRules {
 		return "general.mdc"
@@ -38,7 +45,10 @@ func (a *cursorAdapter) Alias(concept Concept) string {
 
 func (a *cursorAdapter) Notice() string { return "" }
 
-func (a *cursorAdapter) Render(c *canonical.Canonical) ([]FileWrite, error) {
+func (a *cursorAdapter) Render(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
+	if scope == ScopeUser {
+		return nil, nil
+	}
 	rulesContent := fmt.Sprintf("---\nalwaysApply: true\n---\n%s", c.AgentsMD)
 	files := []FileWrite{
 		{Concept: ConceptRules, Path: ".cursor/rules/general.mdc", Content: []byte(rulesContent)},

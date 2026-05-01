@@ -17,6 +17,24 @@ const (
 	ConceptCommands Concept = "commands"
 )
 
+// Scope is the directory tree the canonical source maps onto. ScopeProject syncs
+// to <workspace>/.<tool>/...; ScopeUser syncs to <home>/.<tool>/... (or whatever
+// user-level path each tool actually reads).
+type Scope int
+
+const (
+	ScopeProject Scope = iota
+	ScopeUser
+)
+
+// String returns the human label for a scope.
+func (s Scope) String() string {
+	if s == ScopeUser {
+		return "user"
+	}
+	return "project"
+}
+
 // Compatibility reports whether a tool supports a given concept.
 type Compatibility struct {
 	Supported   bool
@@ -49,9 +67,15 @@ type Adapter interface {
 	// Supports reports whether the tool has a native concept for category.
 	Supports(concept Concept) Compatibility
 
-	// Render produces the set of workspace-relative files to write for this tool
-	// given the canonical source. Paths are relative to workspace root.
-	Render(c *canonical.Canonical) ([]FileWrite, error)
+	// SupportsScope reports whether the tool has a file-based config layer for the
+	// given scope. Adapters with no user-level file location (Cursor's user rules
+	// are UI-managed; Zed has no global rules file) return Supported: false here.
+	SupportsScope(scope Scope) Compatibility
+
+	// Render produces the set of files to write for this tool given the canonical
+	// source and target scope. Paths are relative to the scope's base directory
+	// (workspace root for ScopeProject, user home for ScopeUser).
+	Render(c *canonical.Canonical, scope Scope) ([]FileWrite, error)
 
 	// Alias returns the display filename for the tool's per-concept output when it
 	// differs from the canonical name. Returns an empty string when no alias applies.

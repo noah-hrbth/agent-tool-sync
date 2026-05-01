@@ -15,14 +15,35 @@ Maintain AI tool configs in one place and sync them to Claude Code, OpenCode, Cu
 
 1. Scaffold the canonical source:
    ```bash
-   agentsync init
+   agentsync init              # project scope: ./.agentsync/
+   agentsync init --global     # user scope:    ~/.agentsync/
    ```
 2. Edit `.agentsync/AGENTS.md` with your rules, then add skills, agents, and commands under the corresponding subdirectories.
 3. Sync to all enabled tools:
    ```bash
-   agentsync sync      # headless
-   agentsync           # TUI
+   agentsync sync              # project: headless
+   agentsync sync --global     # user:    headless
+   agentsync                   # TUI (toggle scope with [g])
    ```
+
+## Scopes
+
+`agentsync` operates in one of two scopes:
+
+| Scope | Canonical source | Output target | When to use |
+|---|---|---|---|
+| **Project** (default) | `<repo>/.agentsync/` | `<repo>/.<tool>/...` | Per-project rules — committed alongside the codebase |
+| **User** (`--global` / `-g`) | `~/.agentsync/` | `~/.<tool>/...` (varies per tool) | Personal defaults applied across every project |
+
+The two layers stack: each tool reads its user-level config plus any project-level overrides. Run `agentsync init --global` once to set up your personal canonical, then `agentsync init` per project for repo-specific overrides.
+
+**Tools that don't support user scope** are skipped with a notice:
+- **Cursor** — user rules are managed in the Settings UI, not on disk
+- **Zed** — has no global rules file (project-root `.rules` only)
+
+**Tools whose user-scope output path differs from project scope:**
+- **OpenCode** — writes to `~/.config/opencode/` at user scope (vs. `.opencode/` at project scope)
+- **Codex CLI** — user-scope skills go to `~/.codex/skills/` (vs. project-scope `.agents/skills/` for cross-tool sharing)
 
 ## Supported AI tools
 
@@ -164,7 +185,10 @@ agentsync version                 Print version
 
 Flags:
   --workspace <path>           Target directory (default: current directory)
+  -g, --global                 Operate at user scope (canonical at ~/.agentsync/, syncs to user-level tool dirs)
 ```
+
+In the TUI, press `g` to toggle between project and user scope. The active scope is shown in the tab bar.
 
 ## Contributing — adding a new tool
 

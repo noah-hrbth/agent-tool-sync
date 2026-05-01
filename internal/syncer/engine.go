@@ -51,7 +51,8 @@ type SyncOptions struct {
 
 // Status computes the FileResult list for all enabled adapters without writing.
 // This is used by the TUI to check for divergences before syncing.
-func Status(workspace string, c *canonical.Canonical, adapters []tools.Adapter, cfg *config.Config) ([]FileResult, error) {
+// Adapters whose SupportsScope(scope) is false are skipped.
+func Status(workspace string, c *canonical.Canonical, adapters []tools.Adapter, cfg *config.Config, scope tools.Scope) ([]FileResult, error) {
 	snap, err := loadSnapshot(workspace)
 	if err != nil {
 		return nil, err
@@ -62,7 +63,10 @@ func Status(workspace string, c *canonical.Canonical, adapters []tools.Adapter, 
 		if !cfg.IsEnabled(a.Name()) {
 			continue
 		}
-		writes, err := a.Render(c)
+		if !a.SupportsScope(scope).Supported {
+			continue
+		}
+		writes, err := a.Render(c, scope)
 		if err != nil {
 			return nil, fmt.Errorf("render %s: %w", a.Name(), err)
 		}
@@ -101,17 +105,21 @@ func fileStatus(diskHash, snapHash string, hasSnap bool) FileStatus {
 // Files in opts.Skip are not written (deferred divergences).
 // Callers should run Status first, resolve divergences, then call RunSync
 // with the deferred paths in opts.Skip.
-func RunSync(workspace string, c *canonical.Canonical, adapters []tools.Adapter, cfg *config.Config, opts SyncOptions) (*SyncResult, error) {
+// Adapters whose SupportsScope(scope) is false are skipped.
+func RunSync(workspace string, c *canonical.Canonical, adapters []tools.Adapter, cfg *config.Config, scope tools.Scope, opts SyncOptions) (*SyncResult, error) {
 	snap, err := loadSnapshot(workspace)
 	if err != nil {
 		return nil, err
 	}
 
-	// Pre-compute all paths any adapter would render regardless of enabled state.
+	// Pre-compute all paths any scope-compatible adapter would render regardless of enabled state.
 	// Orphan cleanup uses this so disabling a tool doesn't auto-delete its synced files.
 	allRenderedPaths := make(map[string]bool)
 	for _, a := range adapters {
-		writes, err := a.Render(c)
+		if !a.SupportsScope(scope).Supported {
+			continue
+		}
+		writes, err := a.Render(c, scope)
 		if err != nil {
 			continue
 		}
@@ -126,7 +134,10 @@ func RunSync(workspace string, c *canonical.Canonical, adapters []tools.Adapter,
 		if !cfg.IsEnabled(a.Name()) {
 			continue
 		}
-		writes, err := a.Render(c)
+		if !a.SupportsScope(scope).Supported {
+			continue
+		}
+		writes, err := a.Render(c, scope)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("render %s: %w", a.Name(), err))
 			continue

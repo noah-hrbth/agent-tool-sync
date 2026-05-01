@@ -27,6 +27,13 @@ func (a *zedAdapter) Supports(concept Concept) Compatibility {
 	}
 }
 
+func (a *zedAdapter) SupportsScope(scope Scope) Compatibility {
+	if scope == ScopeUser {
+		return Compatibility{Supported: false, Reason: "Zed has no global rules file — only project-root .rules"}
+	}
+	return Compatibility{Supported: true}
+}
+
 func (a *zedAdapter) Alias(concept Concept) string {
 	if concept == ConceptRules {
 		return ".rules"
@@ -38,7 +45,10 @@ func (a *zedAdapter) Notice() string {
 	return "rules are written to .rules at workspace root; skills/agents/commands are not supported by Zed"
 }
 
-func (a *zedAdapter) Render(c *canonical.Canonical) ([]FileWrite, error) {
+func (a *zedAdapter) Render(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
+	if scope == ScopeUser {
+		return nil, nil
+	}
 	rootContent := buildRootMemoryContent(c.AgentsMD, c.Rules)
 	return []FileWrite{
 		{Concept: ConceptRules, Path: ".rules", Content: []byte(rootContent)},

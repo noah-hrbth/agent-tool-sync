@@ -25,6 +25,10 @@ func (a *geminiAdapter) Supports(concept Concept) Compatibility {
 	}
 }
 
+func (a *geminiAdapter) SupportsScope(_ Scope) Compatibility {
+	return Compatibility{Supported: true}
+}
+
 func (a *geminiAdapter) Alias(concept Concept) string {
 	if concept == ConceptRules {
 		return "GEMINI.md"
@@ -34,7 +38,7 @@ func (a *geminiAdapter) Alias(concept Concept) string {
 
 func (a *geminiAdapter) Notice() string { return "" }
 
-func (a *geminiAdapter) Render(c *canonical.Canonical) ([]FileWrite, error) {
+func (a *geminiAdapter) Render(c *canonical.Canonical, _ Scope) ([]FileWrite, error) {
 	rootContent := buildRootMemoryContent(c.AgentsMD, c.Rules)
 	files := []FileWrite{
 		{Concept: ConceptRules, Path: filepath.Join(".gemini", "GEMINI.md"), Content: []byte(rootContent)},

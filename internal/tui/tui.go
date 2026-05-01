@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textarea"
@@ -71,6 +72,19 @@ type reloadMsg struct {
 	cfg *config.Config
 }
 
+// scopeSnapshot bundles per-scope state that the TUI swaps in/out on toggle.
+// The active scope's snapshot is mirrored into the model's flat fields
+// (workspace/canonical/config) for backward compatibility with existing code.
+type scopeSnapshot struct {
+	base        string
+	canonical   *canonical.Canonical
+	config      *config.Config
+	scope       tools.Scope
+	loaded      bool   // false until first activation
+	initialized bool   // false when .agentsync/ doesn't exist for this scope
+	loadErr     error
+}
+
 // ---- model ----
 
 type model struct {
@@ -78,6 +92,10 @@ type model struct {
 	canonical *canonical.Canonical
 	config    *config.Config
 	adapters  []tools.Adapter
+
+	scope       tools.Scope
+	initialized bool           // false when active scope's .agentsync/ doesn't exist
+	inactive    *scopeSnapshot // the other scope, lazy-loaded on first toggle
 
 	screen screen
 	w, h   int
@@ -112,14 +130,16 @@ type model struct {
 
 // ---- helpers ----
 
-func initialModel(workspace string, c *canonical.Canonical, cfg *config.Config, adapters []tools.Adapter) model {
+func initialModel(workspace string, scope tools.Scope, c *canonical.Canonical, cfg *config.Config, adapters []tools.Adapter) model {
 	m := model{
-		workspace:  workspace,
-		canonical:  c,
-		config:     cfg,
-		adapters:   adapters,
-		statusMap:  map[string]syncer.FileStatus{},
-		divChoices: map[string]divChoice{},
+		workspace:   workspace,
+		canonical:   c,
+		config:      cfg,
+		adapters:    adapters,
+		scope:       scope,
+		initialized: true,
+		statusMap:   map[string]syncer.FileStatus{},
+		divChoices:  map[string]divChoice{},
 	}
 	m.files = buildFileItems(c)
 	m.toolItems = buildToolItems(adapters, cfg, workspace)
@@ -273,9 +293,9 @@ func matchesFileItem(f fileItem, path string) bool {
 
 // ---- tea commands ----
 
-func checkStatusCmd(workspace string, c *canonical.Canonical, adapters []tools.Adapter, cfg *config.Config) tea.Cmd {
+func checkStatusCmd(workspace string, c *canonical.Canonical, adapters []tools.Adapter, cfg *config.Config, scope tools.Scope) tea.Cmd {
 	return func() tea.Msg {
-		results, err := syncer.Status(workspace, c, adapters, cfg)
+		results, err := syncer.Status(workspace, c, adapters, cfg, scope)
 		if err != nil {
 			return statusResultMsg{} // silently ignore on startup
 		}
@@ -283,9 +303,9 @@ func checkStatusCmd(workspace string, c *canonical.Canonical, adapters []tools.A
 	}
 }
 
-func runSyncCmd(workspace string, c *canonical.Canonical, adapters []tools.Adapter, cfg *config.Config, skip map[string]bool) tea.Cmd {
+func runSyncCmd(workspace string, c *canonical.Canonical, adapters []tools.Adapter, cfg *config.Config, scope tools.Scope, skip map[string]bool) tea.Cmd {
 	return func() tea.Msg {
-		result, err := syncer.RunSync(workspace, c, adapters, cfg, syncer.SyncOptions{Skip: skip})
+		result, err := syncer.RunSync(workspace, c, adapters, cfg, scope, syncer.SyncOptions{Skip: skip})
 		return syncDoneMsg{result: result, err: err}
 	}
 }
@@ -307,7 +327,7 @@ func reloadCmd(workspace string) tea.Cmd {
 // ---- Init ----
 
 func (m model) Init() tea.Cmd {
-	return checkStatusCmd(m.workspace, m.canonical, m.adapters, m.config)
+	return checkStatusCmd(m.workspace, m.canonical, m.adapters, m.config, m.scope)
 }
 
 // ---- Update ----
@@ -349,7 +369,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.logView.SetContent(strings.Join(m.syncLines, "\n"))
 		m.logView.GotoBottom()
-		return m, checkStatusCmd(m.workspace, m.canonical, m.adapters, m.config)
+		return m, checkStatusCmd(m.workspace, m.canonical, m.adapters, m.config, m.scope)
 
 	case reloadMsg:
 		m.canonical = msg.c
@@ -359,7 +379,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.fileIdx >= len(m.files) {
 			m.fileIdx = 0
 		}
-		return m, checkStatusCmd(m.workspace, m.canonical, m.adapters, m.config)
+		return m, checkStatusCmd(m.workspace, m.canonical, m.adapters, m.config, m.scope)
 	}
 
 	// When editing, forward keys to textarea
@@ -411,6 +431,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.screen == screenTools {
 				m = m.toggleTool()
 			}
+		case "g":
+			var cmd tea.Cmd
+			m, cmd = m.toggleScope()
+			return m, cmd
 		}
 	}
 
@@ -543,11 +567,115 @@ func (m model) toggleTool() model {
 	return m
 }
 
+// toggleScope swaps between project and user scope. The inactive scope is
+// lazy-loaded the first time it's activated. If the inactive scope's
+// .agentsync/ doesn't exist, the model still toggles but renders an empty
+// state with init guidance.
+func (m model) toggleScope() (model, tea.Cmd) {
+	// Bank the current (now-leaving) state into m.inactive.
+	leaving := scopeSnapshot{
+		base:        m.workspace,
+		canonical:   m.canonical,
+		config:      m.config,
+		scope:       m.scope,
+		loaded:      true,
+		initialized: m.initialized,
+	}
+
+	// Resolve or load the snapshot we're switching to.
+	var entering *scopeSnapshot
+	if m.inactive != nil && m.inactive.loaded {
+		entering = m.inactive
+	} else {
+		other := otherScope(m.scope)
+		base, err := scopeBase(other)
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
+		s := loadScopeSnapshot(base, other)
+		entering = &s
+	}
+
+	if entering.loadErr != nil {
+		m.err = entering.loadErr
+		return m, nil
+	}
+
+	m.scope = entering.scope
+	m.workspace = entering.base
+	m.canonical = entering.canonical
+	m.config = entering.config
+	m.initialized = entering.initialized
+	m.files = buildFileItems(entering.canonical)
+	m.toolItems = buildToolItems(m.adapters, entering.config, entering.base)
+	m.fileIdx = 0
+	m.statusMap = map[string]syncer.FileStatus{}
+	m.divResults = nil
+	m.inactive = &leaving
+
+	if !entering.initialized {
+		// No canonical at this scope yet — clear status to avoid stale results.
+		return m, nil
+	}
+	return m, checkStatusCmd(m.workspace, m.canonical, m.adapters, m.config, m.scope)
+}
+
+func otherScope(s tools.Scope) tools.Scope {
+	if s == tools.ScopeUser {
+		return tools.ScopeProject
+	}
+	return tools.ScopeUser
+}
+
+// scopeBase returns the canonical-root directory for a scope. For ScopeUser this
+// is the user's home dir. For ScopeProject the user-invoked TUI's cwd is used,
+// which the model already holds — so this helper only resolves user scope.
+// (Toggling from user to project requires the original project base; that path
+// lives in m.inactive after first toggle.)
+func scopeBase(s tools.Scope) (string, error) {
+	if s == tools.ScopeUser {
+		return os.UserHomeDir()
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	return cwd, nil
+}
+
+// loadScopeSnapshot reads canonical + config from base/.agentsync/. If the
+// directory doesn't exist it returns initialized=false with an empty canonical
+// so the TUI can render an empty state without erroring.
+func loadScopeSnapshot(base string, scope tools.Scope) scopeSnapshot {
+	s := scopeSnapshot{base: base, scope: scope, loaded: true}
+	if _, err := os.Stat(base + "/.agentsync"); os.IsNotExist(err) {
+		s.canonical = &canonical.Canonical{Workspace: base}
+		s.config = config.Default(tools.Names())
+		s.initialized = false
+		return s
+	}
+	c, err := canonical.Load(base)
+	if err != nil {
+		s.loadErr = err
+		return s
+	}
+	cfg, err := config.Load(base, tools.Names())
+	if err != nil {
+		s.loadErr = err
+		return s
+	}
+	s.canonical = c
+	s.config = cfg
+	s.initialized = true
+	return s
+}
+
 func (m model) startSync() (model, tea.Cmd) {
 	m.syncLines = []string{"Starting sync…"}
 	m.syncDone = false
 
-	results, err := syncer.Status(m.workspace, m.canonical, m.adapters, m.config)
+	results, err := syncer.Status(m.workspace, m.canonical, m.adapters, m.config, m.scope)
 	if err != nil {
 		return m, func() tea.Msg { return syncDoneMsg{err: err} }
 	}
@@ -566,7 +694,7 @@ func (m model) startSync() (model, tea.Cmd) {
 		return m, nil
 	}
 
-	return m, runSyncCmd(m.workspace, m.canonical, m.adapters, m.config, nil)
+	return m, runSyncCmd(m.workspace, m.canonical, m.adapters, m.config, m.scope, nil)
 }
 
 func (m model) applyDivChoices() (model, tea.Cmd) {
@@ -589,7 +717,7 @@ func (m model) applyDivChoices() (model, tea.Cmd) {
 		return m, func() tea.Msg { return syncDoneMsg{err: err} }
 	}
 	m.canonical = c
-	return m, runSyncCmd(m.workspace, c, m.adapters, m.config, skip)
+	return m, runSyncCmd(m.workspace, c, m.adapters, m.config, m.scope, skip)
 }
 
 func (m model) saveCurrentFile(content string) error {
@@ -721,6 +849,30 @@ func ruleAppendNotice(adapterName string) string {
 	}
 }
 
+func scopeTitle(s tools.Scope) string {
+	if s == tools.ScopeUser {
+		return "User"
+	}
+	return "Project"
+}
+
+func (m model) viewUninitialized() string {
+	cmdHint := "agentsync init"
+	if m.scope == tools.ScopeUser {
+		cmdHint = "agentsync init --global"
+	}
+	lines := []string{
+		styleTitle.Render(fmt.Sprintf("%s scope is not initialized", scopeTitle(m.scope))),
+		"",
+		fmt.Sprintf("No .agentsync/ found at %s", m.workspace),
+		"",
+		fmt.Sprintf("Run: %s", lipgloss.NewStyle().Foreground(colorSuccess).Bold(true).Render(cmdHint)),
+		"",
+		"Press [g] to switch back to the other scope.",
+	}
+	return stylePanelBorder.Width(m.w - 5).Height(m.h - 4).MarginLeft(1).Render(strings.Join(lines, "\n"))
+}
+
 // ---- View ----
 
 func (m model) View() string {
@@ -730,13 +882,17 @@ func (m model) View() string {
 
 	tabs := m.renderTabs()
 	var body string
-	switch m.screen {
-	case screenFiles:
-		body = m.viewFiles()
-	case screenTools:
-		body = m.viewTools()
-	case screenSync:
-		body = m.viewSync()
+	if !m.initialized {
+		body = m.viewUninitialized()
+	} else {
+		switch m.screen {
+		case screenFiles:
+			body = m.viewFiles()
+		case screenTools:
+			body = m.viewTools()
+		case screenSync:
+			body = m.viewSync()
+		}
 	}
 	footer := m.renderFooter()
 
@@ -761,7 +917,8 @@ func (m model) renderTabs() string {
 			rendered[i] = styleTab.Render(t)
 		}
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, rendered...)
+	scopeLabel := fmt.Sprintf("  scope: %s  [g]", m.scope)
+	return lipgloss.JoinHorizontal(lipgloss.Top, append(rendered, lipgloss.NewStyle().Foreground(colorMuted).Render(scopeLabel))...)
 }
 
 func (m model) renderFooter() string {
@@ -772,11 +929,11 @@ func (m model) renderFooter() string {
 	case m.showDiv:
 		keys = "a adopt • o overwrite • d defer • enter apply • esc cancel"
 	case m.screen == screenFiles:
-		keys = "j/k move  •  u/d scroll preview  •  e edit  •  s sync  •  h/← prev tab  •  l/→ next tab  •  q quit"
+		keys = "j/k move  •  u/d scroll  •  e edit  •  s sync  •  g scope  •  h/← l/→ tabs  •  q quit"
 	case m.screen == screenTools:
-		keys = "j/k move  •  space toggle  •  h/← prev tab  •  l/→ next tab  •  q quit"
+		keys = "j/k move  •  space toggle  •  g scope  •  h/← l/→ tabs  •  q quit"
 	case m.screen == screenSync:
-		keys = "s sync  •  h/← prev tab  •  l/→ next tab  •  q quit"
+		keys = "s sync  •  g scope  •  h/← l/→ tabs  •  q quit"
 	}
 	return styleFooter.Render(keys)
 }
@@ -1003,19 +1160,19 @@ func (m model) overlayDivModal(base string) string {
 
 // ---- Run ----
 
-// Run starts the agentsync TUI.
-func Run(workspace string, adapters []tools.Adapter) error {
-	c, err := canonical.Load(workspace)
-	if err != nil {
-		return fmt.Errorf("load canonical: %w", err)
-	}
-	cfg, err := config.Load(workspace, tools.Names())
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
+// Run starts the agentsync TUI rooted at workspace with the given initial scope.
+// The other scope is lazy-loaded on first toggle. If the active scope's
+// .agentsync/ doesn't exist, the TUI launches with an empty-state banner
+// instead of failing.
+func Run(workspace string, scope tools.Scope, adapters []tools.Adapter) error {
+	snap := loadScopeSnapshot(workspace, scope)
+	if snap.loadErr != nil {
+		return fmt.Errorf("load %s scope: %w", scope, snap.loadErr)
 	}
 
-	m := initialModel(workspace, c, cfg, adapters)
+	m := initialModel(workspace, scope, snap.canonical, snap.config, adapters)
+	m.initialized = snap.initialized
 	p := tea.NewProgram(m, tea.WithAltScreen())
-	_, err = p.Run()
+	_, err := p.Run()
 	return err
 }

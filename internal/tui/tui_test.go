@@ -63,7 +63,7 @@ func TestSmoke(t *testing.T) {
 	}
 	cfg := config.Default(tools.Names())
 
-	var m tea.Model = initialModel(ws, c, cfg, tools.All())
+	var m tea.Model = initialModel(ws, tools.ScopeProject, c, cfg, tools.All())
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 
 	// Tab cycles forward: Files(0) → Tools(1) → Sync(2) → Files(0)

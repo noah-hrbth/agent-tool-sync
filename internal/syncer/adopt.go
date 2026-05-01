@@ -22,7 +22,11 @@ func AdoptExternal(workspace, path string) error {
 	content := string(data)
 
 	switch {
-	case path == ".claude/CLAUDE.md" || path == ".codex/AGENTS.md" || path == ".opencode/AGENTS.md" || path == ".gemini/GEMINI.md":
+	case path == ".claude/CLAUDE.md" ||
+		path == ".codex/AGENTS.md" ||
+		path == ".opencode/AGENTS.md" ||
+		path == ".config/opencode/AGENTS.md" ||
+		path == ".gemini/GEMINI.md":
 		return canonical.SaveAgentsMD(workspace, content)
 
 	case path == ".cursor/rules/general.mdc":
@@ -101,25 +105,34 @@ func ruleFilename(path string) string {
 }
 
 func matchSkillPath(path string) bool {
-	return (strings.HasPrefix(path, ".claude/skills/") || strings.HasPrefix(path, ".opencode/skills/")) &&
+	return (strings.HasPrefix(path, ".claude/skills/") ||
+		strings.HasPrefix(path, ".opencode/skills/") ||
+		strings.HasPrefix(path, ".config/opencode/skills/")) &&
 		strings.HasSuffix(path, "/SKILL.md")
 }
 
 func skillDir(path string) string {
-	// .claude/skills/<dir>/SKILL.md → parts[2] is the dir
+	// .claude/skills/<dir>/SKILL.md           → parts[2]
+	// .config/opencode/skills/<dir>/SKILL.md  → parts[3]
 	parts := strings.Split(path, "/")
-	if len(parts) < 4 {
-		return ""
+	for i, p := range parts {
+		if p == "skills" && i+1 < len(parts)-1 {
+			return parts[i+1]
+		}
 	}
-	return parts[2]
+	return ""
 }
 
 func matchAgentPath(path string) bool {
-	return (strings.HasPrefix(path, ".claude/agents/") || strings.HasPrefix(path, ".opencode/agents/")) &&
+	return (strings.HasPrefix(path, ".claude/agents/") ||
+		strings.HasPrefix(path, ".opencode/agents/") ||
+		strings.HasPrefix(path, ".config/opencode/agents/")) &&
 		strings.HasSuffix(path, ".md")
 }
 
 func matchCommandPath(path string) bool {
-	return (strings.HasPrefix(path, ".claude/commands/") || strings.HasPrefix(path, ".opencode/commands/")) &&
+	return (strings.HasPrefix(path, ".claude/commands/") ||
+		strings.HasPrefix(path, ".opencode/commands/") ||
+		strings.HasPrefix(path, ".config/opencode/commands/")) &&
 		strings.HasSuffix(path, ".md")
 }
