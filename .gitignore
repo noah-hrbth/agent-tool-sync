@@ -23,3 +23,15 @@ examples/sandbox/.rules
 # OS
 .DS_Store
 Thumbs.db
+
+# AI Tools
+.agents
+.codex
+.cursor
+.claude
+.gemini
+.opencode
+.rules
+AGENTS.md
+GEMINI.md
+CLAUDE.md
