@@ -9,9 +9,18 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -20,18 +29,35 @@ jobs:
           cache: true
       - name: go vet
         run: go vet ./...
-      - name: go test
-        run: go test ./...
+      - name: go test (race)
+        run: go test -race ./...
 
-  goreleaser-check:
+  tidy:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
+      - name: go mod tidy
+        run: go mod tidy
+      - name: verify go.mod / go.sum unchanged
+        run: git diff --exit-code go.mod go.sum
+
+  goreleaser-snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
       - uses: goreleaser/goreleaser-action@v7
         with:
-          version: latest
-          args: check
+          version: "~> v2"
+          args: release --snapshot --clean --skip=publish,sign,sbom

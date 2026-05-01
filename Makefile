@@ -27,7 +27,7 @@ lint:
 	go vet ./...
 
 release-check:
-	goreleaser check
+	goreleaser release --snapshot --clean --skip=publish,sign,sbom
 
 release-snapshot:
 	goreleaser release --snapshot --clean --skip=publish

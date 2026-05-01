@@ -2,10 +2,6 @@ version: 2
 
 project_name: agentsync
 
-before:
-  hooks:
-    - go mod tidy
-
 builds:
   - id: agentsync
     main: ./cmd/agentsync
@@ -18,7 +14,6 @@ builds:
     goos:
       - linux
       - darwin
-      - windows
     goarch:
       - amd64
       - arm64
@@ -27,12 +22,26 @@ archives:
   - id: agentsync
     ids: [agentsync]
     name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
-    format_overrides:
-      - goos: windows
-        formats: [zip]
 
 checksum:
   name_template: checksums.txt
+
+sboms:
+  - id: archive
+    artifacts: archive
+
+signs:
+  - id: cosign-checksum
+    cmd: cosign
+    certificate: "${artifact}.pem"
+    args:
+      - sign-blob
+      - "--output-certificate=${certificate}"
+      - "--output-signature=${signature}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+    output: true
 
 changelog:
   sort: asc
