@@ -69,7 +69,7 @@ homebrew_casks:
     repository:
       owner: noah-hrbth
       name: homebrew-agentsync
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+      token: "{{ .Env.HOMEBREW_TAP_KEY }}"
     url:
       verified: "github.com/noah-hrbth/agent-tool-sync/"
     hooks:
