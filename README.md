@@ -4,12 +4,24 @@ Maintain AI tool configs in one place and sync them to Claude Code, OpenCode, Cu
 
 ## Install
 
+### Homebrew (macOS)
+
 ```bash
-# Manual download
-# GitHub Releases: https://github.com/noah-hrbth/agent-tool-sync/releases
+brew tap noah-hrbth/agentsync
+brew install agentsync
 ```
 
-> Homebrew tap and install script are planned but not yet available.
+Upgrade with `brew update && brew upgrade agentsync`.
+
+### Manual download (macOS, Linux, Windows)
+
+Prebuilt binaries for macOS, Linux, and Windows (amd64 + arm64) are attached to each [GitHub release](https://github.com/noah-hrbth/agent-tool-sync/releases). Extract and place `agentsync` on your `PATH`. Recommended for Linux and Windows.
+
+### From source
+
+```bash
+go install github.com/noah-hrbth/agentsync/cmd/agentsync@latest
+```
 
 ## Quickstart
 

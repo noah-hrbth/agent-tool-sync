@@ -12,7 +12,7 @@ builds:
     binary: agentsync
     ldflags:
       - -s -w
-      - -X github.com/noah-hrbth/agentsync/cmd/agentsync.version={{.Version}}
+      - -X main.version={{.Version}}
     env:
       - CGO_ENABLED=0
     goos:
@@ -25,7 +25,7 @@ builds:
 
 archives:
   - id: agentsync
-    builds: [agentsync]
+    ids: [agentsync]
     name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
@@ -34,18 +34,81 @@ archives:
 checksum:
   name_template: checksums.txt
 
-brews:
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^test:"
+      - "^ci:"
+      - "^style:"
+      - "Merge pull request"
+      - "Merge branch"
+  groups:
+    - title: Features
+      regexp: "^.*feat[(\\w)]*:+.*$"
+      order: 0
+    - title: Bug fixes
+      regexp: "^.*fix[(\\w)]*:+.*$"
+      order: 1
+    - title: Refactors
+      regexp: "^.*refactor[(\\w)]*:+.*$"
+      order: 2
+    - title: Other
+      order: 999
+
+homebrew_casks:
   - name: agentsync
+    binaries:
+      - agentsync
     homepage: https://github.com/noah-hrbth/agent-tool-sync
     description: "Sync AI tool configs (rules, skills, agents, commands) across Claude Code, Cursor, OpenCode, Gemini CLI, and more."
     license: MIT
     repository:
       owner: noah-hrbth
       name: homebrew-agentsync
-    install: |
-      bin.install "agentsync"
-    test: |
-      system "#{bin}/agentsync version"
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    url:
+      verified: "github.com/noah-hrbth/agent-tool-sync/"
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/agentsync"]
+          end
+    caveats: |
+      agentsync keeps your AI tool configs (rules, skills, agents, commands)
+      in one canonical source and syncs them to Claude Code, Cursor,
+      OpenCode, Gemini CLI, Codex CLI, and Zed.
+
+      Getting started (project scope):
+        1. cd into your project, then:
+             agentsync init
+        2. Edit .agentsync/AGENTS.md. Add files under .agentsync/rules/,
+           .agentsync/skills/, .agentsync/agents/, .agentsync/commands/.
+        3. Sync to all enabled tools:
+             agentsync sync          # headless one-way sync
+             agentsync               # interactive TUI
+
+      Personal defaults across every project (user scope):
+             agentsync init --global    # canonical at ~/.agentsync/
+             agentsync sync  --global   # syncs to user-level tool dirs
+
+      Project scope writes to <repo>/.<tool>/...; user scope (--global, -g)
+      writes to ~/.<tool>/... where supported. The two layers stack.
+
+      Commands:
+        agentsync                   Launch TUI (press 'g' to toggle scope)
+        agentsync init              Scaffold .agentsync/
+        agentsync sync              Headless sync; non-zero on divergence
+        agentsync status            Print sync status for every file
+        agentsync version           Print version
+
+      Flags: --workspace <path>, -g/--global
+
+      Docs: https://github.com/noah-hrbth/agent-tool-sync
 
 release:
   github:

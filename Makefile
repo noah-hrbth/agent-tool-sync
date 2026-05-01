@@ -1,9 +1,8 @@
 BINARY := agentsync
-MODULE  := github.com/noah-hrbth/agentsync
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-LDFLAGS := -ldflags "-X $(MODULE)/cmd/agentsync.version=$(VERSION)"
+LDFLAGS := -ldflags "-X main.version=$(VERSION)"
 
-.PHONY: build test smoke sandbox-reset dev clean lint
+.PHONY: build test smoke sandbox-reset dev clean lint release-check release-snapshot
 
 build:
 	go build $(LDFLAGS) -o $(BINARY) ./cmd/agentsync
@@ -26,3 +25,9 @@ clean:
 
 lint:
 	go vet ./...
+
+release-check:
+	goreleaser check
+
+release-snapshot:
+	goreleaser release --snapshot --clean --skip=publish

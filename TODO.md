@@ -1,10 +1,5 @@
 # TODO
 
-## Distribution
-
-- [ ] Homebrew tap (`noah-hrbth/agentsync/agentsync`)
-- [ ] Install script (`scripts/install.sh`)
-
 ## New tool adapters
 
 - [ ] Windsurf
