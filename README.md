@@ -205,18 +205,3 @@ Flags:
 ```
 
 In the TUI, press `g` to toggle between project and user scope. The active scope is shown in the tab bar.
-
-## Contributing — adding a new tool
-
-The adapter interface is defined in [`internal/tools/adapter.go`](internal/tools/adapter.go) and has six methods:
-
-- `Name() string` — returns the tool's display name
-- `Detect(workspace string) Installation` — reports whether the tool is installed (helpers: `detectGlobalDir` for `~/.<tool>`, `detectConfigDir` for `~/.config/<tool>/`)
-- `Supports(concept Concept) Compatibility` — reports whether the tool supports a given concept, with deprecation and reason metadata
-- `Render(c *canonical.Canonical) ([]FileWrite, error)` — produces workspace-relative files to write from the canonical source
-- `Alias(concept Concept) string` — returns a display filename when it differs from the canonical name (empty string otherwise)
-- `Notice() string` — returns an optional informational note shown in the TUI tools screen (empty string otherwise)
-
-See [`internal/tools/claude.go`](internal/tools/claude.go) for a reference implementation.
-
-To add a new tool: implement the interface, then register it in [`internal/tools/registry.go`](internal/tools/registry.go) by adding an instance to the slice returned by `All()`.
