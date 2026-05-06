@@ -9,6 +9,8 @@ func All() []Adapter {
 		&geminiAdapter{},
 		&codexAdapter{},
 		&zedAdapter{},
+		&clineAdapter{},
+		&junieAdapter{},
 	}
 }
 

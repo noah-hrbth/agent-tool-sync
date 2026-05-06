@@ -1,6 +1,6 @@
 # agentsync
 
-Maintain AI tool configs in one place and sync them to Claude Code, OpenCode, Cursor, Gemini CLI, Codex CLI, and Zed.
+Maintain AI tool configs in one place and sync them to Claude Code, OpenCode, Cursor, Gemini CLI, Codex CLI, Cline, JetBrains Junie, and Zed.
 
 ## Install
 
@@ -60,6 +60,8 @@ The two layers stack: each tool reads its user-level config plus any project-lev
 - **OpenCode** — root memory at `<workspace>/AGENTS.md` (project) vs `~/.config/opencode/AGENTS.md` (user); skills/agents/commands at `.opencode/` vs `~/.config/opencode/`
 - **Gemini CLI** — root memory at `<workspace>/GEMINI.md` (project) vs `~/.gemini/GEMINI.md` (user)
 - **Codex CLI** — root memory at `<workspace>/AGENTS.md` (project) vs `~/.codex/AGENTS.md` (user); user-scope skills go to `~/.codex/skills/` (vs. project-scope `.agents/skills/` for cross-tool sharing)
+- **Cline** — project rules at `.clinerules/<name>.md` and root `AGENTS.md`; user rules at `~/Documents/Cline/Rules/<name>.md`. Workflows: `.clinerules/workflows/` (project) vs `~/Documents/Cline/Workflows/` (user). Skills always at `.cline/skills/`. No user-level `AGENTS.md`.
+- **JetBrains Junie** — root `AGENTS.md` is **project-only** (Junie has no user-scope guidelines path); skills/agents/commands at `.junie/` are honoured at both scopes.
 
 ## Supported AI tools
 
@@ -70,6 +72,8 @@ The two layers stack: each tool reads its user-level config plus any project-lev
 | Cursor | `.cursor/rules/general.mdc` | `.cursor/rules/<name>.mdc` | `.cursor/skills/<dir>/SKILL.md` | `.cursor/agents/<name>.md` | `.cursor/commands/<name>.md ⚠` | `~/.cursor/` |
 | Gemini CLI | `GEMINI.md` (workspace root; `~/.gemini/GEMINI.md` at user scope) | appended to root | `.gemini/skills/<dir>/SKILL.md` | `.gemini/agents/<name>.md` | `.gemini/commands/<name>.toml` | `~/.gemini/` |
 | Codex CLI | `AGENTS.md` (workspace root; `~/.codex/AGENTS.md` at user scope) | appended to root | `.agents/skills/<dir>/SKILL.md` | `.codex/agents/<name>.toml` | `⚠ deprecated → skills` | `~/.codex/` |
+| Cline | `AGENTS.md` (workspace root; project-only) | `.clinerules/<name>.md` (project); `~/Documents/Cline/Rules/<name>.md` (user) | `.cline/skills/<dir>/SKILL.md` | — | `.clinerules/workflows/<name>.md` (project); `~/Documents/Cline/Workflows/` (user) | `~/.cline/` |
+| JetBrains Junie | `AGENTS.md` (workspace root; project-only) | appended to root | `.junie/skills/<dir>/SKILL.md` | `.junie/agents/<name>.md` | `.junie/commands/<name>.md` | `~/.junie/` |
 | Zed | `.rules` (workspace root) | appended to root | — | — | — | `~/.config/zed/` |
 
 `AGENTS.md` at the workspace root is shared by OpenCode and Codex CLI — both tools read it natively.
@@ -167,24 +171,25 @@ Command prompt body in markdown.
 
 ## Concept compatibility
 
-| Concept | Claude Code | OpenCode | Cursor | Gemini CLI | Codex CLI | Zed |
-|---|---|---|---|---|---|---|
-| Rules | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Skills | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
-| Agents | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
-| Commands | ⚠ deprecated | ✓ | ⚠ deprecated | ✓ | ⚠ deprecated | ✗ |
+| Concept | Claude Code | OpenCode | Cursor | Gemini CLI | Codex CLI | Cline | JetBrains Junie | Zed |
+|---|---|---|---|---|---|---|---|---|
+| Rules | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Skills | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Agents | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✗ |
+| Commands | ⚠ deprecated | ✓ | ⚠ deprecated | ✓ | ⚠ deprecated | ✓ | ✓ | ✗ |
 
 When editing a skill, agent, or command in the TUI, tools that don't support that concept are shown with `✗` and a reason, and are skipped during sync.
 
 ### Field translation across tools
 
-| Canonical field | Claude Code | Cursor | OpenCode | Gemini CLI | Codex CLI | Zed |
-|---|---|---|---|---|---|---|
-| `paths` (skill) | `paths:` | `globs:` | — | — | — | — |
-| `allowed-tools` | `allowed-tools:` | `allowed-tools:` | `allowed-tools:` | — | — | — |
-| `disable-model-invocation` | `disable-model-invocation:` | `disable-model-invocation:` | `disable-model-invocation:` | — | — | — |
-| `tools` (agent) | `tools:` | — | `tools:` | `tools:` | — | — |
-| `model` (agent) | `model:` | `model:` | `model:` | `model:` | `model:` | — |
+| Canonical field | Claude Code | Cursor | OpenCode | Gemini CLI | Codex CLI | Cline | JetBrains Junie | Zed |
+|---|---|---|---|---|---|---|---|---|
+| `paths` (skill) | `paths:` | `globs:` | — | — | — | — | — | — |
+| `paths` (rule) | `paths:` | `globs:` | — | — | — | `paths:` | — | — |
+| `allowed-tools` | `allowed-tools:` | `allowed-tools:` | `allowed-tools:` | — | — | — | — | — |
+| `disable-model-invocation` | `disable-model-invocation:` | `disable-model-invocation:` | `disable-model-invocation:` | — | — | — | — | — |
+| `tools` (agent) | `tools:` | — | `tools:` | `tools:` | — | — | `tools:` | — |
+| `model` (agent) | `model:` | `model:` | `model:` | `model:` | `model:` | — | `model:` | — |
 
 `—` means the field is not emitted for that tool (unknown fields are silently ignored by most tools; omitting keeps output minimal).
 

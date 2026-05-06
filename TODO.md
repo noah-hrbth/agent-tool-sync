@@ -4,10 +4,10 @@
 
 - [ ] Windsurf
 - [ ] Continue.dev
-- [ ] Cline
+- [x] Cline
 - [ ] Roo Code
 - [ ] GitHub Copilot
-- [ ] JetBrains Junie
+- [x] JetBrains Junie
 - [ ] Crush
 - [ ] Goose
 - [ ] Amazon Q

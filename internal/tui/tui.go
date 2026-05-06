@@ -844,6 +844,8 @@ func ruleAppendNotice(adapterName string) string {
 		return "appended to AGENTS.md"
 	case "Zed":
 		return "appended to .rules"
+	case "JetBrains Junie":
+		return "appended to AGENTS.md"
 	default:
 		return ""
 	}

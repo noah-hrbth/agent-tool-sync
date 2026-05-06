@@ -41,6 +41,23 @@ func AdoptExternal(workspace, path string) error {
 		}
 		return canonical.SaveAgentsMD(workspace, string(rest))
 
+	case matchClineWorkflowPath(path):
+		// Cline workflows have no frontmatter; the body is the prompt.
+		var cmd canonical.Command
+		cmd.Filename = strings.TrimSuffix(filepath.Base(path), ".md")
+		cmd.Body = content
+		return canonical.SaveCommand(workspace, &cmd)
+
+	case matchClineRulePath(path):
+		var r canonical.Rule
+		body, err := frontmatter.Parse(strings.NewReader(content), &r)
+		if err != nil {
+			return fmt.Errorf("parse cline rule frontmatter: %w", err)
+		}
+		r.Filename = strings.TrimSuffix(filepath.Base(path), ".md")
+		r.Body = string(body)
+		return canonical.SaveRule(workspace, &r)
+
 	case matchRulePath(path):
 		var r canonical.Rule
 		body, err := frontmatter.Parse(strings.NewReader(content), &r)
@@ -110,7 +127,9 @@ func ruleFilename(path string) string {
 func matchSkillPath(path string) bool {
 	return (strings.HasPrefix(path, ".claude/skills/") ||
 		strings.HasPrefix(path, ".opencode/skills/") ||
-		strings.HasPrefix(path, ".config/opencode/skills/")) &&
+		strings.HasPrefix(path, ".config/opencode/skills/") ||
+		strings.HasPrefix(path, ".cline/skills/") ||
+		strings.HasPrefix(path, ".junie/skills/")) &&
 		strings.HasSuffix(path, "/SKILL.md")
 }
 
@@ -129,13 +148,48 @@ func skillDir(path string) string {
 func matchAgentPath(path string) bool {
 	return (strings.HasPrefix(path, ".claude/agents/") ||
 		strings.HasPrefix(path, ".opencode/agents/") ||
-		strings.HasPrefix(path, ".config/opencode/agents/")) &&
+		strings.HasPrefix(path, ".config/opencode/agents/") ||
+		strings.HasPrefix(path, ".junie/agents/")) &&
 		strings.HasSuffix(path, ".md")
 }
 
 func matchCommandPath(path string) bool {
 	return (strings.HasPrefix(path, ".claude/commands/") ||
 		strings.HasPrefix(path, ".opencode/commands/") ||
-		strings.HasPrefix(path, ".config/opencode/commands/")) &&
+		strings.HasPrefix(path, ".config/opencode/commands/") ||
+		strings.HasPrefix(path, ".junie/commands/")) &&
 		strings.HasSuffix(path, ".md")
+}
+
+// matchClineRulePath returns true for Cline per-rule files at either scope.
+// Project: .clinerules/<name>.md (excluding the workflows/ subdirectory).
+// User: Documents/Cline/Rules/<name>.md.
+func matchClineRulePath(path string) bool {
+	if !strings.HasSuffix(path, ".md") {
+		return false
+	}
+	if strings.Contains(path, "/workflows/") {
+		return false
+	}
+	if strings.HasPrefix(path, ".clinerules/") {
+		// Reject deeper-than-one-level paths under .clinerules/ that aren't workflows
+		// (workflows already filtered above). e.g. .clinerules/foo.md ✓, .clinerules/sub/foo.md ✗.
+		rest := strings.TrimPrefix(path, ".clinerules/")
+		return !strings.Contains(rest, "/")
+	}
+	if strings.HasPrefix(path, "Documents/Cline/Rules/") {
+		rest := strings.TrimPrefix(path, "Documents/Cline/Rules/")
+		return !strings.Contains(rest, "/")
+	}
+	return false
+}
+
+// matchClineWorkflowPath returns true for Cline workflows (commands concept) at either scope.
+// Project: .clinerules/workflows/<name>.md. User: Documents/Cline/Workflows/<name>.md.
+func matchClineWorkflowPath(path string) bool {
+	if !strings.HasSuffix(path, ".md") {
+		return false
+	}
+	return strings.HasPrefix(path, ".clinerules/workflows/") ||
+		strings.HasPrefix(path, "Documents/Cline/Workflows/")
 }

@@ -1,11 +1,15 @@
 tools:
   Claude Code:
     enabled: true
+  Cline:
+    enabled: true
   Codex CLI:
     enabled: true
   Cursor:
     enabled: true
   Gemini CLI:
+    enabled: true
+  JetBrains Junie:
     enabled: true
   OpenCode:
     enabled: true

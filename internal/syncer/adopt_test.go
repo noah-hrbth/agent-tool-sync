@@ -150,3 +150,151 @@ func TestAdoptUnknownPath(t *testing.T) {
 		t.Error("expected error for unknown path, got nil")
 	}
 }
+
+func TestAdoptSkillFromCline(t *testing.T) {
+	ws := buildAdoptWorkspace(t)
+	if err := os.MkdirAll(filepath.Join(ws, ".cline", "skills", "foo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	skillContent := "---\nname: foo\ndescription: Cline skill\n---\nDo the thing.\n"
+	if err := os.WriteFile(filepath.Join(ws, ".cline", "skills", "foo", "SKILL.md"), []byte(skillContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := syncer.AdoptExternal(ws, ".cline/skills/foo/SKILL.md"); err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+	saved, err := os.ReadFile(filepath.Join(ws, ".agentsync", "skills", "foo", "SKILL.md"))
+	if err != nil {
+		t.Fatalf("read canonical skill: %v", err)
+	}
+	if len(saved) == 0 {
+		t.Error("canonical Cline skill empty")
+	}
+}
+
+func TestAdoptSkillFromJunie(t *testing.T) {
+	ws := buildAdoptWorkspace(t)
+	if err := os.MkdirAll(filepath.Join(ws, ".junie", "skills", "bar"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	skillContent := "---\nname: bar\ndescription: Junie skill\n---\nBody.\n"
+	if err := os.WriteFile(filepath.Join(ws, ".junie", "skills", "bar", "SKILL.md"), []byte(skillContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := syncer.AdoptExternal(ws, ".junie/skills/bar/SKILL.md"); err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+	saved, err := os.ReadFile(filepath.Join(ws, ".agentsync", "skills", "bar", "SKILL.md"))
+	if err != nil {
+		t.Fatalf("read canonical skill: %v", err)
+	}
+	if len(saved) == 0 {
+		t.Error("canonical Junie skill empty")
+	}
+}
+
+func TestAdoptAgentFromJunie(t *testing.T) {
+	ws := buildAdoptWorkspace(t)
+	if err := os.MkdirAll(filepath.Join(ws, ".junie", "agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	agentContent := "---\nname: debugger\ndescription: bug hunter\nmodel: sonnet\n---\nFind bugs.\n"
+	if err := os.WriteFile(filepath.Join(ws, ".junie", "agents", "debugger.md"), []byte(agentContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := syncer.AdoptExternal(ws, ".junie/agents/debugger.md"); err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+	saved, err := os.ReadFile(filepath.Join(ws, ".agentsync", "agents", "debugger.md"))
+	if err != nil {
+		t.Fatalf("read canonical agent: %v", err)
+	}
+	if len(saved) == 0 {
+		t.Error("canonical Junie agent empty")
+	}
+}
+
+func TestAdoptCommandFromJunie(t *testing.T) {
+	ws := buildAdoptWorkspace(t)
+	if err := os.MkdirAll(filepath.Join(ws, ".junie", "commands"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmdContent := "---\ndescription: Summarize PR\n---\nRun summary.\n"
+	if err := os.WriteFile(filepath.Join(ws, ".junie", "commands", "summarize.md"), []byte(cmdContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := syncer.AdoptExternal(ws, ".junie/commands/summarize.md"); err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+	saved, err := os.ReadFile(filepath.Join(ws, ".agentsync", "commands", "summarize.md"))
+	if err != nil {
+		t.Fatalf("read canonical command: %v", err)
+	}
+	if len(saved) == 0 {
+		t.Error("canonical Junie command empty")
+	}
+}
+
+func TestAdoptClineWorkflow(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+	}{
+		{"project", ".clinerules/workflows/deploy.md"},
+		{"user", "Documents/Cline/Workflows/deploy.md"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ws := buildAdoptWorkspace(t)
+			if err := os.MkdirAll(filepath.Join(ws, filepath.Dir(tc.path)), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			body := "do the deploy steps\n"
+			if err := os.WriteFile(filepath.Join(ws, tc.path), []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := syncer.AdoptExternal(ws, tc.path); err != nil {
+				t.Fatalf("adopt: %v", err)
+			}
+			saved, err := os.ReadFile(filepath.Join(ws, ".agentsync", "commands", "deploy.md"))
+			if err != nil {
+				t.Fatalf("read canonical command: %v", err)
+			}
+			if len(saved) == 0 {
+				t.Error("canonical Cline workflow empty")
+			}
+		})
+	}
+}
+
+func TestAdoptClineRule(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+	}{
+		{"project", ".clinerules/style.md"},
+		{"user", "Documents/Cline/Rules/style.md"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ws := buildAdoptWorkspace(t)
+			if err := os.MkdirAll(filepath.Join(ws, filepath.Dir(tc.path)), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			ruleContent := "---\npaths: [src/**]\n---\nRule body.\n"
+			if err := os.WriteFile(filepath.Join(ws, tc.path), []byte(ruleContent), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := syncer.AdoptExternal(ws, tc.path); err != nil {
+				t.Fatalf("adopt: %v", err)
+			}
+			saved, err := os.ReadFile(filepath.Join(ws, ".agentsync", "rules", "style.md"))
+			if err != nil {
+				t.Fatalf("read canonical rule: %v", err)
+			}
+			if len(saved) == 0 {
+				t.Error("canonical Cline rule empty")
+			}
+		})
+	}
+}

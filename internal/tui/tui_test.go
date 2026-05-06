@@ -11,6 +11,25 @@ import (
 	"github.com/noah-hrbth/agentsync/internal/tools"
 )
 
+func TestRuleAppendNotice(t *testing.T) {
+	cases := []struct {
+		adapter string
+		want    string
+	}{
+		{"JetBrains Junie", "appended to AGENTS.md"},
+		{"Cline", ""}, // Cline supports per-file rules — no append notice
+		{"Gemini CLI", "appended to GEMINI.md"},
+		{"Claude Code", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.adapter, func(t *testing.T) {
+			if got := ruleAppendNotice(c.adapter); got != c.want {
+				t.Errorf("ruleAppendNotice(%q): got %q, want %q", c.adapter, got, c.want)
+			}
+		})
+	}
+}
+
 func TestBuildFileItemsOrder(t *testing.T) {
 	c := &canonical.Canonical{
 		AgentsMD: "# rules",

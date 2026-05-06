@@ -95,6 +95,32 @@ func TestAlias(t *testing.T) {
 				{tools.ConceptCommands, ""},
 			},
 		},
+		{
+			name:    "Cline",
+			adapter: tools.All()[6],
+			cases: []struct {
+				concept tools.Concept
+				want    string
+			}{
+				{tools.ConceptRules, ""},
+				{tools.ConceptSkills, ""},
+				{tools.ConceptAgents, ""},
+				{tools.ConceptCommands, ""},
+			},
+		},
+		{
+			name:    "JetBrains Junie",
+			adapter: tools.All()[7],
+			cases: []struct {
+				concept tools.Concept
+				want    string
+			}{
+				{tools.ConceptRules, ""},
+				{tools.ConceptSkills, ""},
+				{tools.ConceptAgents, ""},
+				{tools.ConceptCommands, ""},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -474,6 +500,8 @@ func TestSupportsScope(t *testing.T) {
 		{"Gemini CLI", true},
 		{"Codex CLI", true},
 		{"Zed", false},
+		{"Cline", true},
+		{"JetBrains Junie", true},
 	}
 	byName := map[string]tools.Adapter{}
 	for _, a := range tools.All() {
@@ -600,4 +628,356 @@ func TestZedNotice(t *testing.T) {
 	if zed.Notice() == "" {
 		t.Error("Zed.Notice() should be non-empty — both rules-at-root and unsupported concepts warrant TUI surfacing")
 	}
+}
+
+func adapterByName(t *testing.T, name string) tools.Adapter {
+	t.Helper()
+	for _, a := range tools.All() {
+		if a.Name() == name {
+			return a
+		}
+	}
+	t.Fatalf("adapter %q not registered", name)
+	return nil
+}
+
+// --- Cline ---
+
+func TestClineSupportsMatrix(t *testing.T) {
+	cline := adapterByName(t, "Cline")
+	for _, concept := range []tools.Concept{tools.ConceptRules, tools.ConceptSkills, tools.ConceptCommands} {
+		if got := cline.Supports(concept); !got.Supported {
+			t.Errorf("Cline.Supports(%v): want supported=true, got false (%s)", concept, got.Reason)
+		}
+	}
+	got := cline.Supports(tools.ConceptAgents)
+	if got.Supported {
+		t.Error("Cline.Supports(Agents): want supported=false, got true")
+	}
+	if !strings.Contains(got.Reason, "sub-agents") {
+		t.Errorf("Cline.Supports(Agents) reason should mention sub-agents, got %q", got.Reason)
+	}
+}
+
+func TestClineRendersProjectRules(t *testing.T) {
+	cline := adapterByName(t, "Cline")
+	c := &canonical.Canonical{
+		AgentsMD: "# root",
+		Rules: []*canonical.Rule{{
+			Filename: "style",
+			Body:     "rule body",
+			Paths:    []string{"src/**"},
+		}},
+	}
+	writes, err := cline.Render(c, tools.ScopeProject)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	var rootWrite, ruleWrite *tools.FileWrite
+	for i := range writes {
+		switch writes[i].Path {
+		case "AGENTS.md":
+			rootWrite = &writes[i]
+		case ".clinerules/style.md":
+			ruleWrite = &writes[i]
+		}
+	}
+	if rootWrite == nil {
+		t.Fatal("expected AGENTS.md write at workspace root")
+	}
+	rootContent := string(rootWrite.Content)
+	if !strings.Contains(rootContent, "# root") {
+		t.Errorf("AGENTS.md missing original AgentsMD content: %s", rootContent)
+	}
+	if !strings.Contains(rootContent, "## style") {
+		t.Errorf("AGENTS.md should append rule as ## style section (matches OpenCode/Codex/Junie content): %s", rootContent)
+	}
+	if !strings.Contains(rootContent, "rule body") {
+		t.Errorf("AGENTS.md should include rule body: %s", rootContent)
+	}
+
+	if ruleWrite == nil {
+		t.Fatal("expected .clinerules/style.md write")
+	}
+	ruleContent := string(ruleWrite.Content)
+	if !strings.Contains(ruleContent, "paths: [src/**]") {
+		t.Errorf(".clinerules/style.md should have paths frontmatter: %s", ruleContent)
+	}
+	if !strings.Contains(ruleContent, "rule body") {
+		t.Errorf(".clinerules/style.md should include rule body: %s", ruleContent)
+	}
+}
+
+func TestClineUserScopeRulesPath(t *testing.T) {
+	cline := adapterByName(t, "Cline")
+	c := &canonical.Canonical{
+		AgentsMD: "# root",
+		Rules: []*canonical.Rule{{
+			Filename: "style",
+			Body:     "rule body",
+		}},
+	}
+	writes, err := cline.Render(c, tools.ScopeUser)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if containsPath(writes, "AGENTS.md") {
+		t.Error("Cline user scope must not write AGENTS.md (Cline reads no user-level AGENTS.md)")
+	}
+	if !containsPath(writes, "Documents/Cline/Rules/style.md") {
+		t.Errorf("Cline user rules: expected Documents/Cline/Rules/style.md, got %v", pathsOf(writes))
+	}
+}
+
+func TestClineRendersSkills(t *testing.T) {
+	cline := adapterByName(t, "Cline")
+	c := &canonical.Canonical{
+		Skills: []*canonical.Skill{{
+			Dir:         "foo",
+			Name:        "foo",
+			Description: "test skill",
+			Paths:       []string{"src/**"},
+		}},
+	}
+	for _, scope := range []tools.Scope{tools.ScopeProject, tools.ScopeUser} {
+		writes, err := cline.Render(c, scope)
+		if err != nil {
+			t.Fatalf("Render(%v): %v", scope, err)
+		}
+		if !containsPath(writes, ".cline/skills/foo/SKILL.md") {
+			t.Errorf("Cline %s skills: expected .cline/skills/foo/SKILL.md, got %v", scope, pathsOf(writes))
+		}
+		var skill *tools.FileWrite
+		for i := range writes {
+			if writes[i].Path == ".cline/skills/foo/SKILL.md" {
+				skill = &writes[i]
+				break
+			}
+		}
+		content := string(skill.Content)
+		if !strings.Contains(content, "name: foo") || !strings.Contains(content, "description: test skill") {
+			t.Errorf("Cline skill frontmatter missing name/description: %s", content)
+		}
+		if strings.Contains(content, "paths:") || strings.Contains(content, "globs:") || strings.Contains(content, "allowed-tools:") {
+			t.Errorf("Cline skill frontmatter should not include paths/globs/allowed-tools: %s", content)
+		}
+	}
+}
+
+func TestClineRendersWorkflows(t *testing.T) {
+	cline := adapterByName(t, "Cline")
+	c := &canonical.Canonical{
+		Commands: []*canonical.Command{{
+			Filename: "deploy",
+			Body:     "deploy steps",
+		}},
+	}
+	projectWrites, _ := cline.Render(c, tools.ScopeProject)
+	userWrites, _ := cline.Render(c, tools.ScopeUser)
+	if !containsPath(projectWrites, ".clinerules/workflows/deploy.md") {
+		t.Errorf("Cline project workflows: expected .clinerules/workflows/deploy.md, got %v", pathsOf(projectWrites))
+	}
+	if !containsPath(userWrites, "Documents/Cline/Workflows/deploy.md") {
+		t.Errorf("Cline user workflows: expected Documents/Cline/Workflows/deploy.md, got %v", pathsOf(userWrites))
+	}
+	for _, w := range projectWrites {
+		if w.Path == ".clinerules/workflows/deploy.md" {
+			if string(w.Content) != "deploy steps" {
+				t.Errorf("Cline workflow body should be plain (no frontmatter); got %q", string(w.Content))
+			}
+		}
+	}
+}
+
+func TestClineNotice(t *testing.T) {
+	cline := adapterByName(t, "Cline")
+	notice := cline.Notice()
+	if notice == "" {
+		t.Fatal("Cline.Notice() should be non-empty — three roots warrant explanation")
+	}
+	for _, fragment := range []string{".clinerules", ".cline/skills", "Documents/Cline"} {
+		if !strings.Contains(notice, fragment) {
+			t.Errorf("Cline.Notice() should mention %q, got %q", fragment, notice)
+		}
+	}
+}
+
+// --- JetBrains Junie ---
+
+func TestJunieSupportsMatrix(t *testing.T) {
+	junie := adapterByName(t, "JetBrains Junie")
+	for _, concept := range []tools.Concept{tools.ConceptRules, tools.ConceptSkills, tools.ConceptAgents, tools.ConceptCommands} {
+		got := junie.Supports(concept)
+		if !got.Supported {
+			t.Errorf("Junie.Supports(%v): want supported=true, got false (%s)", concept, got.Reason)
+		}
+		if got.Deprecated {
+			t.Errorf("Junie.Supports(%v): unexpected deprecated=true", concept)
+		}
+	}
+}
+
+func TestJunieRuleAppendsToRootMemory(t *testing.T) {
+	junie := adapterByName(t, "JetBrains Junie")
+	c := &canonical.Canonical{
+		AgentsMD: "# root",
+		Rules: []*canonical.Rule{{
+			Filename: "style",
+			Body:     "rule body",
+		}},
+	}
+	writes, err := junie.Render(c, tools.ScopeProject)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	var root *tools.FileWrite
+	for i := range writes {
+		if writes[i].Path == "AGENTS.md" {
+			root = &writes[i]
+		}
+		// Ensure no per-rule files exist for Junie.
+		if strings.HasPrefix(writes[i].Path, ".junie/rules/") {
+			t.Errorf("Junie should not emit per-rule files; got %s", writes[i].Path)
+		}
+	}
+	if root == nil {
+		t.Fatal("Junie project: expected AGENTS.md at workspace root")
+	}
+	content := string(root.Content)
+	if !strings.Contains(content, "# root") {
+		t.Errorf("AGENTS.md missing AgentsMD content: %s", content)
+	}
+	if !strings.Contains(content, "## style") || !strings.Contains(content, "rule body") {
+		t.Errorf("AGENTS.md missing appended rule section: %s", content)
+	}
+}
+
+func TestJunieUserScopeSkipsRootMemory(t *testing.T) {
+	junie := adapterByName(t, "JetBrains Junie")
+	c := &canonical.Canonical{
+		AgentsMD: "# root",
+		Rules:    []*canonical.Rule{{Filename: "style", Body: "rule body"}},
+	}
+	writes, err := junie.Render(c, tools.ScopeUser)
+	if err != nil {
+		t.Fatalf("Render(User): %v", err)
+	}
+	for _, w := range writes {
+		if strings.HasSuffix(w.Path, "AGENTS.md") {
+			t.Errorf("Junie user scope must not emit AGENTS.md (no user-level guidelines path); got %s", w.Path)
+		}
+	}
+}
+
+func TestJunieRendersSkills(t *testing.T) {
+	junie := adapterByName(t, "JetBrains Junie")
+	c := &canonical.Canonical{
+		Skills: []*canonical.Skill{{
+			Dir:                    "foo",
+			Name:                   "foo",
+			Description:            "test skill",
+			AllowedTools:           []string{"Read"},
+			DisableModelInvocation: true,
+			Paths:                  []string{"src/**"},
+		}},
+	}
+	for _, scope := range []tools.Scope{tools.ScopeProject, tools.ScopeUser} {
+		writes, _ := junie.Render(c, scope)
+		if !containsPath(writes, ".junie/skills/foo/SKILL.md") {
+			t.Errorf("Junie %s skills: expected .junie/skills/foo/SKILL.md, got %v", scope, pathsOf(writes))
+		}
+		for _, w := range writes {
+			if w.Path == ".junie/skills/foo/SKILL.md" {
+				content := string(w.Content)
+				if !strings.Contains(content, "name: foo") || !strings.Contains(content, "description: test skill") {
+					t.Errorf("Junie skill frontmatter missing name/description: %s", content)
+				}
+				for _, omit := range []string{"allowed-tools", "disable-model-invocation", "paths", "globs"} {
+					if strings.Contains(content, omit+":") {
+						t.Errorf("Junie skill frontmatter should omit %q (Junie supports name/description only): %s", omit, content)
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestJunieRendersAgents(t *testing.T) {
+	junie := adapterByName(t, "JetBrains Junie")
+	c := &canonical.Canonical{
+		Agents: []*canonical.Agent{{
+			Filename:    "debugger",
+			Name:        "debugger",
+			Description: "find bugs",
+			Tools:       []string{"Read", "Grep"},
+			Model:       "sonnet",
+		}},
+	}
+	writes, _ := junie.Render(c, tools.ScopeProject)
+	if !containsPath(writes, ".junie/agents/debugger.md") {
+		t.Errorf("Junie agents: expected .junie/agents/debugger.md, got %v", pathsOf(writes))
+	}
+	for _, w := range writes {
+		if w.Path == ".junie/agents/debugger.md" {
+			content := string(w.Content)
+			for _, want := range []string{"name: debugger", "description: find bugs", "tools: [Read, Grep]", "model: sonnet"} {
+				if !strings.Contains(content, want) {
+					t.Errorf("Junie agent frontmatter missing %q: %s", want, content)
+				}
+			}
+		}
+	}
+}
+
+func TestJunieRendersCommands(t *testing.T) {
+	junie := adapterByName(t, "JetBrains Junie")
+	c := &canonical.Canonical{
+		Commands: []*canonical.Command{{
+			Filename:     "summarize",
+			Description:  "summarize PR",
+			ArgumentHint: "[pr-num]",
+			AllowedTools: []string{"Read"},
+			Body:         "do stuff",
+		}},
+	}
+	writes, _ := junie.Render(c, tools.ScopeProject)
+	if !containsPath(writes, ".junie/commands/summarize.md") {
+		t.Errorf("Junie commands: expected .junie/commands/summarize.md, got %v", pathsOf(writes))
+	}
+	for _, w := range writes {
+		if w.Path == ".junie/commands/summarize.md" {
+			content := string(w.Content)
+			if !strings.Contains(content, "description: summarize PR") {
+				t.Errorf("Junie command should have description frontmatter: %s", content)
+			}
+			for _, omit := range []string{"argument-hint", "allowed-tools", "model"} {
+				if strings.Contains(content, omit+":") {
+					t.Errorf("Junie command should omit %q (only description supported): %s", omit, content)
+				}
+			}
+			if !strings.Contains(content, "do stuff") {
+				t.Errorf("Junie command body missing: %s", content)
+			}
+		}
+	}
+}
+
+func TestJunieNotice(t *testing.T) {
+	junie := adapterByName(t, "JetBrains Junie")
+	notice := junie.Notice()
+	if notice == "" {
+		t.Fatal("Junie.Notice() should be non-empty — project-only AGENTS.md warrants explanation")
+	}
+	if !strings.Contains(notice, "AGENTS.md") || !strings.Contains(notice, "project") {
+		t.Errorf("Junie.Notice() should mention AGENTS.md and project-only behaviour: %q", notice)
+	}
+}
+
+func pathsOf(writes []tools.FileWrite) []string {
+	out := make([]string, len(writes))
+	for i, w := range writes {
+		out[i] = w.Path
+	}
+	return out
 }
