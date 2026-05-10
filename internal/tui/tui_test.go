@@ -1,15 +1,49 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/noah-hrbth/agentsync/internal/canonical"
 	"github.com/noah-hrbth/agentsync/internal/config"
 	"github.com/noah-hrbth/agentsync/internal/tools"
 )
+
+// mouseMsg builds a tea.MouseMsg with the given coords/button/action. Used by
+// the mouse-handling tests below.
+func mouseMsg(x, y int, btn tea.MouseButton, action tea.MouseAction) tea.MouseMsg {
+	return tea.MouseMsg(tea.MouseEvent{X: x, Y: y, Button: btn, Action: action})
+}
+
+// newTestModel constructs an initialModel rooted at ws with project scope and
+// applies a 120x40 WindowSizeMsg, returning the (mutated) model. Used by mouse
+// tests that need a real layout.
+func newTestModel(t *testing.T, ws string) model {
+	t.Helper()
+	c, err := canonical.Load(ws)
+	if err != nil {
+		t.Fatalf("load canonical: %v", err)
+	}
+	cfg := config.Default(tools.Names())
+	var m tea.Model = initialModel(ws, tools.ScopeProject, c, cfg, tools.All())
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	return m.(model)
+}
+
+// writeAgentsMD seeds ws/.agentsync/AGENTS.md so canonical.Load succeeds.
+func writeAgentsMD(t *testing.T, ws string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(ws, ".agentsync"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws, ".agentsync", "AGENTS.md"), []byte("# Rules\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestRuleAppendNotice(t *testing.T) {
 	cases := []struct {
@@ -322,4 +356,238 @@ func TestSmoke(t *testing.T) {
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
 	_ = m.View()
+}
+
+func TestMouseClickTabs(t *testing.T) {
+	ws := t.TempDir()
+	writeAgentsMD(t, ws)
+	m := newTestModel(t, ws)
+
+	// Each tab is rendered with the same width regardless of active state
+	// (Padding(0,2) on both styleTab and styleTabActive). Click in the middle
+	// of each tab and assert the screen switches.
+	tabWidth := lipgloss.Width(styleTabActive.Render("[1] Files"))
+
+	cases := []struct {
+		name string
+		x    int
+		want screen
+	}{
+		{"Files", tabWidth / 2, screenFiles},
+		{"Tools", tabWidth + tabWidth/2, screenTools},
+		{"Sync", 2*tabWidth + tabWidth/2, screenSync},
+	}
+	var tm tea.Model = m
+	for _, c := range cases {
+		tm, _ = tm.Update(mouseMsg(c.x, 0, tea.MouseButtonLeft, tea.MouseActionPress))
+		if got := tm.(model).screen; got != c.want {
+			t.Errorf("click tab %q at X=%d: want screen %d, got %d", c.name, c.x, c.want, got)
+		}
+	}
+}
+
+func TestMouseClickScope(t *testing.T) {
+	// Redirect HOME so toggleScope's user-scope load reads from a temp dir.
+	t.Setenv("HOME", t.TempDir())
+
+	ws := t.TempDir()
+	writeAgentsMD(t, ws)
+	m := newTestModel(t, ws)
+	startScope := m.scope
+
+	l := m.computeLayout()
+	clickX := (l.scopeXRange.start + l.scopeXRange.end) / 2
+
+	var tm tea.Model = m
+	tm, _ = tm.Update(mouseMsg(clickX, 0, tea.MouseButtonLeft, tea.MouseActionPress))
+
+	if got := tm.(model).scope; got == startScope {
+		t.Errorf("click scope label: scope did not flip from %v", startScope)
+	}
+}
+
+func TestMouseClickFileRow(t *testing.T) {
+	ws := t.TempDir()
+	writeAgentsMD(t, ws)
+	// Seed three skills so we have predictable, non-placeholder rows.
+	skillsDir := filepath.Join(ws, ".agentsync", "skills")
+	for _, name := range []string{"alpha", "bravo", "charlie"} {
+		if err := os.MkdirAll(filepath.Join(skillsDir, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		body := "---\nname: " + name + "\ndescription: t\n---\nbody\n"
+		if err := os.WriteFile(filepath.Join(skillsDir, name, "SKILL.md"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := newTestModel(t, ws)
+	// Pick the second skill row (index 2 = AGENTS.md(0), skill[0](1), skill[1](2)).
+	targetIdx := 2
+	l := m.computeLayout()
+	rowY := l.filesListInnerY0 + m.fileRowYOffset(targetIdx) - m.fileList.YOffset
+
+	var tm tea.Model = m
+	tm, _ = tm.Update(mouseMsg(l.filesLeftPanelX+3, rowY, tea.MouseButtonLeft, tea.MouseActionPress))
+	if got := tm.(model).fileIdx; got != targetIdx {
+		t.Errorf("click file row: want fileIdx=%d, got %d", targetIdx, got)
+	}
+}
+
+func TestMouseWheelFilesLeft(t *testing.T) {
+	ws := t.TempDir()
+	writeAgentsMD(t, ws)
+	// Seed enough skills to overflow a 40-row terminal's left panel.
+	skillsDir := filepath.Join(ws, ".agentsync", "skills")
+	for i := 0; i < 80; i++ {
+		name := fmt.Sprintf("skill-%03d", i)
+		if err := os.MkdirAll(filepath.Join(skillsDir, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		body := "---\nname: " + name + "\ndescription: t\n---\nbody\n"
+		if err := os.WriteFile(filepath.Join(skillsDir, name, "SKILL.md"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := newTestModel(t, ws)
+	l := m.computeLayout()
+	leftX := l.filesLeftPanelX + 3
+	rowY := l.filesListInnerY0 + 5
+
+	var tm tea.Model = m
+	for i := 0; i < 5; i++ {
+		tm, _ = tm.Update(mouseMsg(leftX, rowY, tea.MouseButtonWheelDown, tea.MouseActionPress))
+	}
+	mm := tm.(model)
+	if mm.fileList.YOffset == 0 {
+		t.Errorf("wheel down on left list: fileList.YOffset still 0")
+	}
+	if mm.preview.YOffset != 0 {
+		t.Errorf("wheel down on left list: preview.YOffset = %d, want 0", mm.preview.YOffset)
+	}
+}
+
+func TestMouseWheelFilesRight(t *testing.T) {
+	ws := t.TempDir()
+	// Seed AGENTS.md with a long body so the preview overflows the right panel.
+	if err := os.MkdirAll(filepath.Join(ws, ".agentsync"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "# Rules\n\n"
+	for i := 0; i < 200; i++ {
+		body += fmt.Sprintf("line %d of long content\n", i)
+	}
+	if err := os.WriteFile(filepath.Join(ws, ".agentsync", "AGENTS.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := newTestModel(t, ws)
+	l := m.computeLayout()
+	rightX := l.filesRightPanelX + 5
+	rowY := l.filesPanelTopY + 5
+
+	var tm tea.Model = m
+	for i := 0; i < 5; i++ {
+		tm, _ = tm.Update(mouseMsg(rightX, rowY, tea.MouseButtonWheelDown, tea.MouseActionPress))
+	}
+	mm := tm.(model)
+	if mm.preview.YOffset == 0 {
+		t.Errorf("wheel down on right pane: preview.YOffset still 0")
+	}
+	if mm.fileList.YOffset != 0 {
+		t.Errorf("wheel down on right pane: fileList.YOffset = %d, want 0", mm.fileList.YOffset)
+	}
+}
+
+func TestCtrlDOnTools(t *testing.T) {
+	ws := t.TempDir()
+	writeAgentsMD(t, ws)
+
+	// Use a tiny window so the 9-adapter tool list overflows the visible area
+	// and HalfPageDown actually advances YOffset.
+	c, err := canonical.Load(ws)
+	if err != nil {
+		t.Fatalf("load canonical: %v", err)
+	}
+	cfg := config.Default(tools.Names())
+	var tm tea.Model = initialModel(ws, tools.ScopeProject, c, cfg, tools.All())
+	tm, _ = tm.Update(tea.WindowSizeMsg{Width: 120, Height: 12})
+
+	startIdx := tm.(model).toolIdx
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyTab}) // → screenTools
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+
+	mm := tm.(model)
+	if mm.toolList.YOffset == 0 {
+		t.Errorf("ctrl+d on Tools: toolList.YOffset still 0 (height=%d, total rows=%d)",
+			mm.toolList.Height, len(mm.toolItems))
+	}
+	if mm.toolIdx != startIdx {
+		t.Errorf("ctrl+d on Tools: toolIdx changed from %d to %d (should stay put)", startIdx, mm.toolIdx)
+	}
+}
+
+func TestFileCursorFollow(t *testing.T) {
+	ws := t.TempDir()
+	writeAgentsMD(t, ws)
+	skillsDir := filepath.Join(ws, ".agentsync", "skills")
+	for i := 0; i < 80; i++ {
+		name := fmt.Sprintf("skill-%03d", i)
+		if err := os.MkdirAll(filepath.Join(skillsDir, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		body := "---\nname: " + name + "\ndescription: t\n---\nbody\n"
+		if err := os.WriteFile(filepath.Join(skillsDir, name, "SKILL.md"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := newTestModel(t, ws)
+	var tm tea.Model = m
+	for i := 0; i < 60; i++ {
+		tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	}
+	mm := tm.(model)
+	rowY := mm.fileRowYOffset(mm.fileIdx)
+	if rowY < mm.fileList.YOffset || rowY >= mm.fileList.YOffset+mm.fileList.Height {
+		t.Errorf("cursor row Y=%d outside visible window [%d, %d) after follow",
+			rowY, mm.fileList.YOffset, mm.fileList.YOffset+mm.fileList.Height)
+	}
+}
+
+func TestMouseIgnoredWhenEditing(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, ".agentsync"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "# Rules\n\n"
+	for i := 0; i < 200; i++ {
+		body += fmt.Sprintf("line %d\n", i)
+	}
+	if err := os.WriteFile(filepath.Join(ws, ".agentsync", "AGENTS.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := newTestModel(t, ws)
+	var tm tea.Model = m
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	if !tm.(model).editing {
+		t.Fatalf("expected editor to be open after pressing e")
+	}
+
+	l := tm.(model).computeLayout()
+	rightX := l.filesRightPanelX + 5
+	rowY := l.filesPanelTopY + 5
+	for i := 0; i < 5; i++ {
+		tm, _ = tm.Update(mouseMsg(rightX, rowY, tea.MouseButtonWheelDown, tea.MouseActionPress))
+	}
+
+	mm := tm.(model)
+	if mm.preview.YOffset != 0 {
+		t.Errorf("wheel during editing scrolled preview: YOffset=%d, want 0", mm.preview.YOffset)
+	}
+	if mm.fileList.YOffset != 0 {
+		t.Errorf("wheel during editing scrolled fileList: YOffset=%d, want 0", mm.fileList.YOffset)
+	}
 }

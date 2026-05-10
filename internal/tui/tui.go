@@ -97,6 +97,36 @@ type scopeSnapshot struct {
 	loadErr     error
 }
 
+// tabRange is a half-open [start, end) X-coordinate span used by mouse hit-testing.
+type tabRange struct{ start, end int }
+
+// layoutMetrics captures the geometry View() draws so Update() can route mouse
+// events to the same regions. All Y coordinates are 0-based screen rows.
+type layoutMetrics struct {
+	tabRowY     int
+	tabXRanges  []tabRange // [1] Files, [2] Tools, [3] Sync (in that order)
+	scopeXRange tabRange   // "  scope: <s>  [g]"
+	bodyTopY    int        // first row of the body panel
+	bodyBottomY int        // first row past the body panel (exclusive)
+
+	// Files screen
+	filesPanelTopY    int
+	filesPanelBottomY int
+	filesLeftPanelX   int
+	filesLeftPanelW   int
+	filesRightPanelX  int
+	filesRightPanelW  int
+	filesListInnerY0  int // Y where listLines[0] is drawn (inside left panel)
+
+	// Tools screen
+	toolsPanelX int
+	toolsPanelW int
+
+	// Sync screen
+	syncPanelX int
+	syncPanelW int
+}
+
 // ---- model ----
 
 type model struct {
@@ -116,6 +146,7 @@ type model struct {
 	// files screen
 	files    []fileItem
 	fileIdx  int
+	fileList viewport.Model // wraps the left list
 	preview  viewport.Model
 	editing  bool
 	editor   textarea.Model
@@ -136,6 +167,7 @@ type model struct {
 	// tools screen
 	toolItems    []toolItem
 	toolIdx      int
+	toolList     viewport.Model // wraps the rows (excluding title)
 	showToolInfo bool
 
 	// sync screen
@@ -179,6 +211,14 @@ func initialModel(workspace string, scope tools.Scope, c *canonical.Canonical, c
 	m.preview.KeyMap = vimViewportKeyMap()
 	m.logView = viewport.New(80, 20)
 	m.logView.KeyMap = vimViewportKeyMap()
+	// fileList and toolList route ctrl+d/u manually (see Update); strip default
+	// viewport keybindings so they don't hijack j/k/g/G/u/d.
+	m.fileList = viewport.New(80, 20)
+	m.fileList.MouseWheelEnabled = true
+	m.fileList.KeyMap = viewport.KeyMap{}
+	m.toolList = viewport.New(80, 20)
+	m.toolList.MouseWheelEnabled = true
+	m.toolList.KeyMap = viewport.KeyMap{}
 	ta := textarea.New()
 	ta.SetWidth(80)
 	ta.SetHeight(20)
@@ -466,11 +506,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
-		panelH := m.h - 4 // tabs + footer
-		m.preview = viewport.New(m.w/2-4, panelH)
-		m.logView = viewport.New(m.w-4, panelH)
-		m.editor.SetWidth(m.w/2 - 4)
-		m.editor.SetHeight(panelH - 2)
+		m.resizeViewports()
+		m.refreshFileList()
+		m.refreshToolList()
+		m.updatePreview()
 		return m, nil
 
 	case statusResultMsg:
@@ -486,6 +525,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		// Status icons (●/▲/○/+) live inside the file list rows; rerender so
+		// the viewport reflects the new state.
+		m.refreshFileList()
 		return m, nil
 
 	case syncDoneMsg:
@@ -517,7 +559,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m = m.startEdit()
 			}
 		}
+		m.refreshFileList()
+		m.refreshToolList()
+		m.updatePreview()
 		return m, checkStatusCmd(m.workspace, m.canonical, m.adapters, m.config, m.scope)
+
+	case tea.MouseMsg:
+		// Mouse events are dropped while any modal or the editor is open. The
+		// trailing viewport.Update forwarder below would otherwise scroll the
+		// viewport behind the modal on every wheel tick (viewport.Update reacts
+		// to MouseMsg without bounds-checking X/Y).
+		if m.editing || m.inputting || m.confirmingDelete || m.showDiv || m.showToolInfo {
+			return m, nil
+		}
+		return m.handleMouse(msg)
 	}
 
 	// When editing, forward keys to textarea
@@ -563,15 +618,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "tab", "shift+tab", "right", "left", "l", "h", "1", "2", "3":
 			switch msg.String() {
 			case "tab", "right", "l":
-				m.screen = screen((int(m.screen) + 1) % 3)
+				m.setScreen(screen((int(m.screen) + 1) % 3))
 			case "shift+tab", "left", "h":
-				m.screen = screen((int(m.screen) + 2) % 3)
+				m.setScreen(screen((int(m.screen) + 2) % 3))
 			case "1":
-				m.screen = screenFiles
+				m.setScreen(screenFiles)
 			case "2":
-				m.screen = screenTools
+				m.setScreen(screenTools)
 			case "3":
-				m.screen = screenSync
+				m.setScreen(screenSync)
 			}
 		case "j", "down":
 			m = m.cursorDown()
@@ -610,6 +665,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			m, cmd = m.toggleScope()
 			return m, cmd
+		case "ctrl+d":
+			switch m.screen {
+			case screenFiles:
+				m.preview.HalfPageDown()
+			case screenTools:
+				m.toolList.HalfPageDown()
+			case screenSync:
+				m.logView.HalfPageDown()
+			}
+			return m, nil
+		case "ctrl+u":
+			switch m.screen {
+			case screenFiles:
+				m.preview.HalfPageUp()
+			case screenTools:
+				m.toolList.HalfPageUp()
+			case screenSync:
+				m.logView.HalfPageUp()
+			}
+			return m, nil
 		}
 	}
 
@@ -701,10 +776,14 @@ func (m model) cursorDown() model {
 		if m.fileIdx < len(m.files)-1 {
 			m.fileIdx++
 		}
+		m.followFileCursor()
+		m.refreshFileList()
 	case screenTools:
 		if m.toolIdx < len(m.toolItems)-1 {
 			m.toolIdx++
 		}
+		m.followToolCursor()
+		m.refreshToolList()
 	}
 	return m
 }
@@ -715,19 +794,284 @@ func (m model) cursorUp() model {
 		if m.fileIdx > 0 {
 			m.fileIdx--
 		}
+		m.followFileCursor()
+		m.refreshFileList()
 	case screenTools:
 		if m.toolIdx > 0 {
 			m.toolIdx--
 		}
+		m.followToolCursor()
+		m.refreshToolList()
 	}
 	return m
 }
 
+// updatePreview renders the currently-selected file's content into the preview
+// viewport. Wraps lines at the viewport's current width so HalfPageDown/Up
+// advance over the same visual rows that View() draws.
 func (m *model) updatePreview() {
 	if m.screen != screenFiles || len(m.files) == 0 {
 		return
 	}
-	m.preview.SetContent(m.previewContent(m.fileIdx))
+	w := m.preview.Width
+	if w < 1 {
+		w = 1
+	}
+	m.preview.SetContent(ansi.Wrap(m.previewContent(m.fileIdx), w, " -"))
+}
+
+// refreshFileList rebuilds the left-list viewport content. Called whenever the
+// list contents or cursor highlight changes.
+func (m *model) refreshFileList() {
+	m.fileList.SetContent(m.fileListContent())
+}
+
+// refreshToolList rebuilds the tools-list viewport content. Called whenever
+// the tool rows or cursor highlight changes.
+func (m *model) refreshToolList() {
+	m.toolList.SetContent(strings.Join(m.toolRowLines(), "\n"))
+}
+
+// followFileCursor scrolls m.fileList so the row for m.fileIdx stays visible.
+func (m *model) followFileCursor() {
+	if len(m.files) == 0 || m.fileList.Height <= 0 {
+		return
+	}
+	y := m.fileRowYOffset(m.fileIdx)
+	if y < m.fileList.YOffset {
+		m.fileList.SetYOffset(y)
+	} else if y >= m.fileList.YOffset+m.fileList.Height {
+		m.fileList.SetYOffset(y - m.fileList.Height + 1)
+	}
+}
+
+// followToolCursor scrolls m.toolList so the row for m.toolIdx stays visible.
+// Each tool row is exactly one line so y == toolIdx.
+func (m *model) followToolCursor() {
+	if len(m.toolItems) == 0 || m.toolList.Height <= 0 {
+		return
+	}
+	y := m.toolIdx
+	if y < m.toolList.YOffset {
+		m.toolList.SetYOffset(y)
+	} else if y >= m.toolList.YOffset+m.toolList.Height {
+		m.toolList.SetYOffset(y - m.toolList.Height + 1)
+	}
+}
+
+// setScreen swaps the active screen and refreshes viewport contents so a
+// freshly-shown screen reflects the latest data without waiting for a reload.
+func (m *model) setScreen(s screen) {
+	m.screen = s
+	m.refreshFileList()
+	m.refreshToolList()
+	m.updatePreview()
+}
+
+// computeLayout derives the on-screen geometry of every clickable / scrollable
+// region from m.w / m.h and the lipgloss styles used by View(). Pure — no
+// model mutation. Caller hits results against MouseMsg X/Y.
+func (m model) computeLayout() layoutMetrics {
+	var l layoutMetrics
+	l.tabRowY = 0
+	l.bodyTopY = 1
+	// Body panel height is m.h - 4 (1 tab row + 1 footer row + 2 spacing rows
+	// outside the panel). Body occupies rows [1, m.h-3).
+	l.bodyBottomY = l.bodyTopY + (m.h - 4)
+
+	labels := []string{"[1] Files", "[2] Tools", "[3] Sync"}
+	x := 0
+	l.tabXRanges = make([]tabRange, len(labels))
+	for i, lab := range labels {
+		var w int
+		if screen(i) == m.screen {
+			w = lipgloss.Width(styleTabActive.Render(lab))
+		} else {
+			w = lipgloss.Width(styleTab.Render(lab))
+		}
+		l.tabXRanges[i] = tabRange{start: x, end: x + w}
+		x += w
+	}
+	scopeStr := fmt.Sprintf("  scope: %s  [g]", m.scope)
+	sw := lipgloss.Width(lipgloss.NewStyle().Foreground(colorMuted).Render(scopeStr))
+	l.scopeXRange = tabRange{start: x, end: x + sw}
+
+	// Files: outer panel sits at MarginLeft(1). Each panel has 1-cell border
+	// on each side, so the inner content starts at panelX + 1, panelTopY + 1.
+	leftW := m.w/3 - 2
+	rightW := m.w - leftW - 7
+	l.filesPanelTopY = l.bodyTopY
+	l.filesPanelBottomY = l.bodyBottomY
+	l.filesLeftPanelX = 1
+	l.filesLeftPanelW = leftW
+	l.filesRightPanelX = l.filesLeftPanelX + leftW
+	l.filesRightPanelW = rightW
+	l.filesListInnerY0 = l.filesPanelTopY + 1
+
+	// Tools: also MarginLeft(1).
+	l.toolsPanelX = 1
+	l.toolsPanelW = m.w - 5
+
+	// Sync: stylePanelBorderInset bakes in MarginLeft(1).
+	l.syncPanelX = 1
+	l.syncPanelW = m.w - 5
+	return l
+}
+
+// handleMouse routes a MouseMsg to the click or wheel handler appropriate to
+// the screen region under (X, Y).
+func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	l := m.computeLayout()
+
+	// Tab row + scope label sit above the screen body and apply on every screen.
+	if msg.Y == l.tabRowY {
+		if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
+			return m, nil
+		}
+		for i, r := range l.tabXRanges {
+			if msg.X >= r.start && msg.X < r.end {
+				m.setScreen(screen(i))
+				return m, nil
+			}
+		}
+		if msg.X >= l.scopeXRange.start && msg.X < l.scopeXRange.end {
+			return m.toggleScope()
+		}
+		return m, nil
+	}
+
+	switch m.screen {
+	case screenFiles:
+		return m.handleFilesMouse(msg, l)
+	case screenTools:
+		return m.handleToolsMouse(msg, l)
+	case screenSync:
+		return m.handleSyncMouse(msg, l)
+	}
+	return m, nil
+}
+
+func (m model) handleFilesMouse(msg tea.MouseMsg, l layoutMetrics) (tea.Model, tea.Cmd) {
+	inLeft := msg.X >= l.filesLeftPanelX && msg.X < l.filesLeftPanelX+l.filesLeftPanelW &&
+		msg.Y >= l.filesPanelTopY && msg.Y < l.filesPanelBottomY
+	inRight := msg.X >= l.filesRightPanelX && msg.X < l.filesRightPanelX+l.filesRightPanelW &&
+		msg.Y >= l.filesPanelTopY && msg.Y < l.filesPanelBottomY
+
+	switch msg.Button {
+	case tea.MouseButtonLeft:
+		if msg.Action != tea.MouseActionPress {
+			return m, nil
+		}
+		if inLeft {
+			innerY := msg.Y - l.filesListInnerY0 + m.fileList.YOffset
+			if i := m.fileIdxAtListY(innerY); i >= 0 {
+				m.fileIdx = i
+				m.followFileCursor()
+				m.refreshFileList()
+				m.updatePreview()
+			}
+		}
+		return m, nil
+	case tea.MouseButtonWheelUp:
+		if inLeft {
+			m.fileList.ScrollUp(3)
+		} else if inRight {
+			m.preview.ScrollUp(3)
+		}
+		return m, nil
+	case tea.MouseButtonWheelDown:
+		if inLeft {
+			m.fileList.ScrollDown(3)
+		} else if inRight {
+			m.preview.ScrollDown(3)
+		}
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m model) handleToolsMouse(msg tea.MouseMsg, l layoutMetrics) (tea.Model, tea.Cmd) {
+	inPanel := msg.X >= l.toolsPanelX && msg.X < l.toolsPanelX+l.toolsPanelW &&
+		msg.Y >= l.bodyTopY && msg.Y < l.bodyBottomY
+	if !inPanel {
+		return m, nil
+	}
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		m.toolList.ScrollUp(3)
+	case tea.MouseButtonWheelDown:
+		m.toolList.ScrollDown(3)
+	}
+	return m, nil
+}
+
+func (m model) handleSyncMouse(msg tea.MouseMsg, l layoutMetrics) (tea.Model, tea.Cmd) {
+	inPanel := msg.X >= l.syncPanelX && msg.X < l.syncPanelX+l.syncPanelW &&
+		msg.Y >= l.bodyTopY && msg.Y < l.bodyBottomY
+	if !inPanel {
+		return m, nil
+	}
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		m.logView.ScrollUp(3)
+	case tea.MouseButtonWheelDown:
+		m.logView.ScrollDown(3)
+	}
+	return m, nil
+}
+
+// resizeViewports updates the dimensions of every viewport to match m.w / m.h.
+// Sizes mirror what viewFiles / viewTools / viewSync render so wheel + Ctrl+D/U
+// page over the same visible window the user sees.
+func (m *model) resizeViewports() {
+	panelOuterH := m.h - 4
+	panelInnerH := panelOuterH - 2 // minus top + bottom border
+
+	// Files left list.
+	leftW := m.w/3 - 2
+	leftInnerW := leftW - 2
+	if leftInnerW < 1 {
+		leftInnerW = 1
+	}
+	listH := panelInnerH
+	if listH < 1 {
+		listH = 1
+	}
+	m.fileList.Width = leftInnerW
+	m.fileList.Height = listH
+
+	// Files preview (right pane).
+	rightW := m.w - leftW - 7
+	const previewPadX = 2
+	previewInnerW := rightW - 2*previewPadX
+	if previewInnerW < 1 {
+		previewInnerW = 1
+	}
+	m.preview.Width = previewInnerW
+	// Height is recomputed in viewFiles based on badge count; set a sensible
+	// default here so HalfPageDown works even before the first View() call.
+	m.preview.Height = panelInnerH
+
+	// Sync log.
+	m.logView.Width = m.w - 7
+	m.logView.Height = m.h - 9
+
+	// Tools list. Outer panel width is m.w - 5; inside the border + the title
+	// row + a blank separator, the rows themselves get panelInnerH-2.
+	toolsInnerW := (m.w - 5) - 2
+	if toolsInnerW < 1 {
+		toolsInnerW = 1
+	}
+	toolsInnerH := panelInnerH - 2
+	if toolsInnerH < 1 {
+		toolsInnerH = 1
+	}
+	m.toolList.Width = toolsInnerW
+	m.toolList.Height = toolsInnerH
+
+	// Editor (Files right pane when m.editing).
+	m.editor.SetWidth(previewInnerW)
+	m.editor.SetHeight(panelInnerH)
 }
 
 func (m model) startEdit() model {
@@ -1027,6 +1371,7 @@ func (m model) toggleTool() model {
 	tc.Enabled = item.enabled
 	m.config.Tools[item.adapter.Name()] = tc
 	_ = config.Save(m.workspace, m.config)
+	m.refreshToolList()
 	return m
 }
 
@@ -1083,6 +1428,11 @@ func (m model) toggleScope() (model, tea.Cmd) {
 	m.confirmingDelete = false
 	m.deleteErr = ""
 	m.inactive = &leaving
+	m.fileList.SetYOffset(0)
+	m.toolList.SetYOffset(0)
+	m.refreshFileList()
+	m.refreshToolList()
+	m.updatePreview()
 
 	if !entering.initialized {
 		// No canonical at this scope yet — clear status to avoid stale results.
@@ -1522,11 +1872,10 @@ func groupHeader(prev, cur fileKind) string {
 	return ""
 }
 
-func (m model) viewFiles() string {
-	leftW := m.w/3 - 2
-	rightW := m.w - leftW - 7
-
-	// left: file list with section headers
+// fileListContent renders the left-list block (group headers + file rows)
+// the same way viewFiles does. Pure helper so refresh hooks can stamp the
+// content into m.fileList without going through View().
+func (m model) fileListContent() string {
 	var listLines []string
 	prevKind := fileKind(-1)
 	for i, f := range m.files {
@@ -1557,11 +1906,113 @@ func (m model) viewFiles() string {
 		}
 		listLines = append(listLines, row)
 	}
+	return strings.Join(listLines, "\n")
+}
 
-	listContent := strings.Join(listLines, "\n")
-	leftPanel := stylePanelBorderActive.Width(leftW).Height(m.h - 4).Render(listContent)
+// fileRowYOffset returns the 0-based Y inside fileListContent() where the row
+// for m.files[idx] is drawn. Each file row is 1 line; a group transition adds
+// 1 (header) or 2 (blank + header) lines before the row.
+func (m model) fileRowYOffset(idx int) int {
+	if idx < 0 || idx >= len(m.files) {
+		return 0
+	}
+	y := 0
+	prev := fileKind(-1)
+	for i, f := range m.files {
+		if hdr := groupHeader(prev, f.kind); hdr != "" {
+			if prev != fileKind(-1) {
+				y++ // blank separator
+			}
+			y++ // header line
+		}
+		if i == idx {
+			return y
+		}
+		y++
+		prev = f.kind
+	}
+	return y
+}
 
-	// right: preview or editor
+// fileIdxAtListY reverse-maps a Y inside fileListContent() to a file index, or
+// -1 if Y falls on a header / blank-separator line.
+func (m model) fileIdxAtListY(y int) int {
+	if y < 0 || len(m.files) == 0 {
+		return -1
+	}
+	cur := 0
+	prev := fileKind(-1)
+	for i, f := range m.files {
+		if hdr := groupHeader(prev, f.kind); hdr != "" {
+			if prev != fileKind(-1) {
+				if cur == y {
+					return -1
+				}
+				cur++
+			}
+			if cur == y {
+				return -1
+			}
+			cur++
+		}
+		if cur == y {
+			return i
+		}
+		cur++
+		prev = f.kind
+	}
+	return -1
+}
+
+// computeBadges returns the per-tool compatibility badges for the currently
+// selected file. Empty when no files exist.
+func (m model) computeBadges() []string {
+	if len(m.files) == 0 {
+		return nil
+	}
+	f := m.files[m.fileIdx]
+	var concept tools.Concept
+	switch f.kind {
+	case kindAgentsMD, kindRule:
+		concept = tools.ConceptRules
+	case kindSkill:
+		concept = tools.ConceptSkills
+	case kindAgent:
+		concept = tools.ConceptAgents
+	case kindCommand:
+		concept = tools.ConceptCommands
+	}
+	var badges []string
+	for _, a := range m.adapters {
+		compat := a.Supports(concept)
+		switch {
+		case compat.Supported && !compat.Deprecated:
+			label := a.Name()
+			if f.kind == kindRule {
+				if notice := ruleAppendNotice(a.Name()); notice != "" {
+					label = fmt.Sprintf("%s (%s)", a.Name(), notice)
+				}
+			} else {
+				if alias := a.Alias(concept); alias != "" {
+					label = fmt.Sprintf("%s (%s)", a.Name(), alias)
+				}
+			}
+			badges = append(badges, fmt.Sprintf("%s %s", styleBadgeOk, label))
+		case compat.Deprecated:
+			badges = append(badges, fmt.Sprintf("%s %s — %s", styleBadgeWarn, a.Name(), compat.Reason))
+		default:
+			badges = append(badges, fmt.Sprintf("%s %s — %s", styleBadgeFail, a.Name(), compat.Reason))
+		}
+	}
+	return badges
+}
+
+func (m model) viewFiles() string {
+	leftW := m.w/3 - 2
+	rightW := m.w - leftW - 7
+
+	leftPanel := stylePanelBorderActive.Width(leftW).Height(m.h - 4).Render(m.fileList.View())
+
 	const previewPadX = 2
 	previewInnerW := rightW - 2*previewPadX
 	if previewInnerW < 1 {
@@ -1573,48 +2024,13 @@ func (m model) viewFiles() string {
 		m.editor.SetWidth(previewInnerW)
 		rightPanel = rightPanelStyle.Width(rightW).Height(m.h - 4).Render(m.editor.View())
 	} else {
-		// compatibility badges
-		var badges []string
-		if len(m.files) > 0 {
-			f := m.files[m.fileIdx]
-			var concept tools.Concept
-			switch f.kind {
-			case kindAgentsMD, kindRule:
-				concept = tools.ConceptRules
-			case kindSkill:
-				concept = tools.ConceptSkills
-			case kindAgent:
-				concept = tools.ConceptAgents
-			case kindCommand:
-				concept = tools.ConceptCommands
-			}
-			for _, a := range m.adapters {
-				compat := a.Supports(concept)
-				switch {
-				case compat.Supported && !compat.Deprecated:
-					label := a.Name()
-					if f.kind == kindRule {
-						if notice := ruleAppendNotice(a.Name()); notice != "" {
-							label = fmt.Sprintf("%s (%s)", a.Name(), notice)
-						}
-					} else {
-						if alias := a.Alias(concept); alias != "" {
-							label = fmt.Sprintf("%s (%s)", a.Name(), alias)
-						}
-					}
-					badges = append(badges, fmt.Sprintf("%s %s", styleBadgeOk, label))
-				case compat.Deprecated:
-					badges = append(badges, fmt.Sprintf("%s %s — %s", styleBadgeWarn, a.Name(), compat.Reason))
-				default:
-					badges = append(badges, fmt.Sprintf("%s %s — %s", styleBadgeFail, a.Name(), compat.Reason))
-				}
-			}
-		}
-
-		m.preview.Width = previewInnerW
+		badges := m.computeBadges()
+		// Recompute preview Height to account for the badge block + the two blank
+		// rows between badges and the preview body.
 		m.preview.Height = m.h - 4 - len(badges) - 3
-		m.preview.SetContent(ansi.Wrap(m.previewContent(m.fileIdx), previewInnerW, " -"))
-
+		if m.preview.Height < 1 {
+			m.preview.Height = 1
+		}
 		badgeStr := strings.Join(badges, "\n")
 		rightContent := badgeStr + "\n\n" + m.preview.View()
 		rightPanel = rightPanelStyle.Width(rightW).Height(m.h - 4).Render(rightContent)
@@ -1623,11 +2039,10 @@ func (m model) viewFiles() string {
 	return lipgloss.NewStyle().MarginLeft(1).Render(lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel))
 }
 
-func (m model) viewTools() string {
-	var lines []string
-	lines = append(lines, styleTitle.Render("Agent Sync Targets"))
-	lines = append(lines, "")
-
+// toolRowLines builds the per-tool row strings (no title, no leading blank).
+// Returned slice is what the toolList viewport renders.
+func (m model) toolRowLines() []string {
+	rows := make([]string, 0, len(m.toolItems))
 	for i, item := range m.toolItems {
 		check := "[ ]"
 		if item.enabled {
@@ -1639,7 +2054,6 @@ func (m model) viewTools() string {
 			installed = lipgloss.NewStyle().Foreground(colorSuccess).Render("installed")
 		}
 
-		// concept badges
 		concepts := []tools.Concept{tools.ConceptRules, tools.ConceptSkills, tools.ConceptAgents, tools.ConceptCommands}
 		conceptLabels := []string{"rules", "skills", "agents", "commands"}
 		var conceptStr []string
@@ -1666,11 +2080,15 @@ func (m model) viewTools() string {
 		} else {
 			row = "  " + fmt.Sprintf("%s  %-14s  %-15s  %s", check, item.adapter.Name(), installed, strings.Join(conceptStr, "  "))
 		}
-		lines = append(lines, row)
+		rows = append(rows, row)
 	}
+	return rows
+}
 
-	content := strings.Join(lines, "\n")
-	return stylePanelBorder.Width(m.w - 5).Height(m.h - 4).MarginLeft(1).Render(content)
+func (m model) viewTools() string {
+	header := styleTitle.Render("Agent Sync Targets") + "\n\n"
+	inner := header + m.toolList.View()
+	return stylePanelBorder.Width(m.w - 5).Height(m.h - 4).MarginLeft(1).Render(inner)
 }
 
 func (m model) viewSync() string {
@@ -1949,7 +2367,7 @@ func Run(workspace string, scope tools.Scope, adapters []tools.Adapter) error {
 
 	m := initialModel(workspace, scope, snap.canonical, snap.config, adapters)
 	m.initialized = snap.initialized
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
 	return err
 }
