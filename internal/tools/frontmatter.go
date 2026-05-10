@@ -53,17 +53,20 @@ func buildTOML(fields []fmField) string {
 				if !strings.Contains(v, "'''") && !strings.HasSuffix(v, "'") {
 					fmt.Fprintf(&sb, "%s = '''\n%s\n'''\n", f.key, v)
 				} else {
-					escaped := strings.ReplaceAll(v, `\`, `\\`)
-					escaped = strings.ReplaceAll(escaped, `"`, `\"`)
-					fmt.Fprintf(&sb, "%s = \"\"\"\n%s\n\"\"\"\n", f.key, escaped)
+					fmt.Fprintf(&sb, "%s = \"\"\"\n%s\n\"\"\"\n", f.key, tomlEscape(v))
 				}
 			} else {
-				escaped := strings.ReplaceAll(v, `\`, `\\`)
-				escaped = strings.ReplaceAll(escaped, `"`, `\"`)
-				fmt.Fprintf(&sb, "%s = \"%s\"\n", f.key, escaped)
+				fmt.Fprintf(&sb, "%s = \"%s\"\n", f.key, tomlEscape(v))
 			}
 		case []string:
-			// Not used for TOML output currently; skip.
+			if len(v) == 0 {
+				continue
+			}
+			quoted := make([]string, len(v))
+			for i, s := range v {
+				quoted[i] = `"` + tomlEscape(s) + `"`
+			}
+			fmt.Fprintf(&sb, "%s = [%s]\n", f.key, strings.Join(quoted, ", "))
 		case bool:
 			if v {
 				fmt.Fprintf(&sb, "%s = true\n", f.key)
@@ -71,4 +74,10 @@ func buildTOML(fields []fmField) string {
 		}
 	}
 	return sb.String()
+}
+
+func tomlEscape(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return s
 }

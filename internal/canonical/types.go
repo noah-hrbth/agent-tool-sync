@@ -3,7 +3,7 @@ package canonical
 // Rule is a rule definition from .agentsync/rules/<filename>.md.
 type Rule struct {
 	Filename    string   `yaml:"-"` // basename without .md (set by loader)
-	Description string   `yaml:"description,omitempty"`
+	Description string   `yaml:"description"`
 	Paths       []string `yaml:"paths,omitempty"` // optional glob targeting
 	Body        string   `yaml:"-"`
 }

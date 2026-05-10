@@ -14,6 +14,7 @@
 - [ ] Kilo Code
 - [ ] Aider
 - [ ] Cody
+- [x] Mistral Vibe
 
 ## Features
 

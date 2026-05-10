@@ -11,6 +11,7 @@ func All() []Adapter {
 		&zedAdapter{},
 		&clineAdapter{},
 		&junieAdapter{},
+		&vibeAdapter{},
 	}
 }
 

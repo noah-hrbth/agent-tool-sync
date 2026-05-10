@@ -3,7 +3,7 @@ package tui
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	colorPrimary = lipgloss.AdaptiveColor{Light: "#5C6BC0", Dark: "#7986CB"}
+	colorPrimary = lipgloss.AdaptiveColor{Light: "#6665DD", Dark: "#6665DD"}
 	colorMuted   = lipgloss.AdaptiveColor{Light: "#9E9E9E", Dark: "#616161"}
 	colorSuccess = lipgloss.AdaptiveColor{Light: "#388E3C", Dark: "#66BB6A"}
 	colorWarn    = lipgloss.AdaptiveColor{Light: "#F57C00", Dark: "#FFA726"}
@@ -40,21 +40,28 @@ var (
 	styleSelected   = lipgloss.NewStyle().Foreground(colorPrimary).Bold(true)
 
 	styleFooter = lipgloss.NewStyle().
-			Foreground(colorMuted).
-			Padding(0, 1)
+			Padding(0, 1).
+			MarginLeft(2)
 
-	styleIconSynced    = lipgloss.NewStyle().Foreground(colorSuccess).Render("●")
-	styleIconDivergent = lipgloss.NewStyle().Foreground(colorWarn).Render("▲")
-	styleIconMissing   = lipgloss.NewStyle().Foreground(colorDanger).Render("○")
-	styleIconNew       = lipgloss.NewStyle().Foreground(colorMuted).Render("+")
+	styleFooterKey   = lipgloss.NewStyle().Bold(true)
+	styleFooterLabel = lipgloss.NewStyle().Foreground(colorMuted)
+
+	styleIconSynced      = lipgloss.NewStyle().Foreground(colorSuccess).Render("●")
+	styleIconDivergent   = lipgloss.NewStyle().Foreground(colorWarn).Render("▲")
+	styleIconMissing     = lipgloss.NewStyle().Foreground(colorDanger).Render("○")
+	styleIconNew         = lipgloss.NewStyle().Foreground(colorMuted).Render("+")
+	styleIconPlaceholder = lipgloss.NewStyle().Foreground(colorMuted).Render("·")
+	stylePlaceholderRow  = lipgloss.NewStyle().Foreground(colorMuted).Italic(true)
+	styleInputError      = lipgloss.NewStyle().Foreground(colorDanger)
+	styleInputLabel      = lipgloss.NewStyle().Foreground(colorPrimary).Bold(true)
 
 	styleBadgeOk   = lipgloss.NewStyle().Foreground(colorSuccess).Render("✓")
 	styleBadgeFail = lipgloss.NewStyle().Foreground(colorDanger).Render("✗")
 	styleBadgeWarn = lipgloss.NewStyle().Foreground(colorWarn).Render("⚠")
 
 	styleModalBorder = lipgloss.NewStyle().
-				Border(lipgloss.DoubleBorder()).
-				BorderForeground(colorWarn).
+				Border(lipgloss.ThickBorder()).
+				BorderForeground(colorPrimary).
 				Padding(1, 2)
 
 	styleFileGroupHeader = lipgloss.NewStyle().Foreground(colorMuted).Bold(true)

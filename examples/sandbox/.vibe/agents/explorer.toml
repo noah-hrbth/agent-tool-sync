@@ -1,0 +1,5 @@
+display_name = "explorer"
+description = "Lightweight codebase explorer. Use when asked to map structure, list files, or summarise a module — quick orientation tasks that don't need deep reasoning."
+active_model = "haiku"
+enabled_tools = ["Read", "Glob", "Grep", "LS"]
+system_prompt_id = "explorer"

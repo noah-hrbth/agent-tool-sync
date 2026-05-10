@@ -1,0 +1,5 @@
+display_name = "researcher"
+description = "Researches topics, libraries, APIs, and documentation. Use when asked to look up, investigate, or gather information about external resources."
+active_model = "sonnet"
+enabled_tools = ["Read", "Glob", "Grep"]
+system_prompt_id = "researcher"

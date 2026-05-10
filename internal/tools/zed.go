@@ -41,8 +41,18 @@ func (a *zedAdapter) Alias(concept Concept) string {
 	return ""
 }
 
-func (a *zedAdapter) Notice() string {
-	return "rules are written to .rules at workspace root; skills/agents/commands are not supported by Zed"
+func (a *zedAdapter) ConceptInfo(concept Concept) string {
+	switch concept {
+	case ConceptRules:
+		return "Written to .rules at workspace root. Project scope only — Zed has no global rules file."
+	case ConceptSkills:
+		return "Zed has no skills concept."
+	case ConceptAgents:
+		return "Zed's agent_servers expects executable specs, not markdown system prompts."
+	case ConceptCommands:
+		return "Zed slash commands are WASM extensions, not file-defined."
+	}
+	return ""
 }
 
 func (a *zedAdapter) Render(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {

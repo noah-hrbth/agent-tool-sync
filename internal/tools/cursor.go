@@ -43,7 +43,19 @@ func (a *cursorAdapter) Alias(concept Concept) string {
 	return ""
 }
 
-func (a *cursorAdapter) Notice() string { return "" }
+func (a *cursorAdapter) ConceptInfo(concept Concept) string {
+	switch concept {
+	case ConceptRules:
+		return "AGENTS.md flattens to .cursor/rules/general.mdc (catch-all). Per-file rules at .cursor/rules/<name>.mdc. User-level rules live in Cursor's Settings UI, not on disk — user scope is unsupported."
+	case ConceptSkills:
+		return "Skills at .cursor/skills/<dir>/SKILL.md."
+	case ConceptAgents:
+		return "Subagents at .cursor/agents/<name>.md."
+	case ConceptCommands:
+		return "Commands at .cursor/commands/<name>.md, but Cursor promotes skills as the slash-command surface — prefer skills."
+	}
+	return ""
+}
 
 func (a *cursorAdapter) Render(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	if scope == ScopeUser {

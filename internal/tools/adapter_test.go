@@ -121,6 +121,19 @@ func TestAlias(t *testing.T) {
 				{tools.ConceptCommands, ""},
 			},
 		},
+		{
+			name:    "Mistral Vibe",
+			adapter: tools.All()[8],
+			cases: []struct {
+				concept tools.Concept
+				want    string
+			}{
+				{tools.ConceptRules, ""},
+				{tools.ConceptSkills, ""},
+				{tools.ConceptAgents, ""},
+				{tools.ConceptCommands, ""},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -491,8 +504,8 @@ func TestZedDoesNotEmitSkillsAgentsCommands(t *testing.T) {
 
 func TestSupportsScope(t *testing.T) {
 	cases := []struct {
-		toolName        string
-		userSupported   bool
+		toolName      string
+		userSupported bool
 	}{
 		{"Claude Code", true},
 		{"OpenCode", true},
@@ -502,6 +515,7 @@ func TestSupportsScope(t *testing.T) {
 		{"Zed", false},
 		{"Cline", true},
 		{"JetBrains Junie", true},
+		{"Mistral Vibe", true},
 	}
 	byName := map[string]tools.Adapter{}
 	for _, a := range tools.All() {
@@ -621,13 +635,6 @@ func containsPath(writes []tools.FileWrite, path string) bool {
 		}
 	}
 	return false
-}
-
-func TestZedNotice(t *testing.T) {
-	zed := tools.All()[5]
-	if zed.Notice() == "" {
-		t.Error("Zed.Notice() should be non-empty — both rules-at-root and unsupported concepts warrant TUI surfacing")
-	}
 }
 
 func adapterByName(t *testing.T, name string) tools.Adapter {
@@ -786,19 +793,6 @@ func TestClineRendersWorkflows(t *testing.T) {
 			if string(w.Content) != "deploy steps" {
 				t.Errorf("Cline workflow body should be plain (no frontmatter); got %q", string(w.Content))
 			}
-		}
-	}
-}
-
-func TestClineNotice(t *testing.T) {
-	cline := adapterByName(t, "Cline")
-	notice := cline.Notice()
-	if notice == "" {
-		t.Fatal("Cline.Notice() should be non-empty — three roots warrant explanation")
-	}
-	for _, fragment := range []string{".clinerules", ".cline/skills", "Documents/Cline"} {
-		if !strings.Contains(notice, fragment) {
-			t.Errorf("Cline.Notice() should mention %q, got %q", fragment, notice)
 		}
 	}
 }
@@ -963,21 +957,284 @@ func TestJunieRendersCommands(t *testing.T) {
 	}
 }
 
-func TestJunieNotice(t *testing.T) {
-	junie := adapterByName(t, "JetBrains Junie")
-	notice := junie.Notice()
-	if notice == "" {
-		t.Fatal("Junie.Notice() should be non-empty — project-only AGENTS.md warrants explanation")
-	}
-	if !strings.Contains(notice, "AGENTS.md") || !strings.Contains(notice, "project") {
-		t.Errorf("Junie.Notice() should mention AGENTS.md and project-only behaviour: %q", notice)
-	}
-}
-
 func pathsOf(writes []tools.FileWrite) []string {
 	out := make([]string, len(writes))
 	for i, w := range writes {
 		out[i] = w.Path
 	}
 	return out
+}
+
+// --- Mistral Vibe ---
+
+func TestVibeRegisteredAtIndex8(t *testing.T) {
+	all := tools.All()
+	if len(all) != 9 {
+		t.Fatalf("tools.All(): want 9 adapters, got %d", len(all))
+	}
+	if all[8].Name() != "Mistral Vibe" {
+		t.Errorf("tools.All()[8].Name(): want %q, got %q", "Mistral Vibe", all[8].Name())
+	}
+}
+
+func TestVibeSupportsMatrix(t *testing.T) {
+	vibe := adapterByName(t, "Mistral Vibe")
+	for _, concept := range []tools.Concept{tools.ConceptRules, tools.ConceptSkills, tools.ConceptAgents} {
+		got := vibe.Supports(concept)
+		if !got.Supported {
+			t.Errorf("Vibe.Supports(%v): want supported=true, got false (%s)", concept, got.Reason)
+		}
+		if got.Deprecated {
+			t.Errorf("Vibe.Supports(%v): want Deprecated=false, got true", concept)
+		}
+	}
+}
+
+func TestVibeRuleAppendsToRootMemory(t *testing.T) {
+	vibe := adapterByName(t, "Mistral Vibe")
+	c := &canonical.Canonical{
+		AgentsMD: "# root\n",
+		Rules: []*canonical.Rule{{
+			Filename: "style",
+			Body:     "rule body",
+		}},
+	}
+	writes, err := vibe.Render(c, tools.ScopeProject)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	var root *tools.FileWrite
+	for i := range writes {
+		if writes[i].Path == "AGENTS.md" {
+			root = &writes[i]
+		}
+		if strings.HasPrefix(writes[i].Path, ".vibe/rules/") || strings.Contains(writes[i].Path, "/rules/") {
+			t.Errorf("Vibe should not emit per-rule files (no globs concept); got %s", writes[i].Path)
+		}
+	}
+	if root == nil {
+		t.Fatal("Vibe project: expected AGENTS.md at workspace root")
+	}
+	content := string(root.Content)
+	if !strings.Contains(content, "# root") {
+		t.Errorf("AGENTS.md missing AgentsMD content: %s", content)
+	}
+	if !strings.Contains(content, "## style") || !strings.Contains(content, "rule body") {
+		t.Errorf("AGENTS.md missing appended rule section: %s", content)
+	}
+}
+
+func TestVibeUserScopeRulesPath(t *testing.T) {
+	vibe := adapterByName(t, "Mistral Vibe")
+	c := &canonical.Canonical{
+		AgentsMD: "# root\n",
+		Rules: []*canonical.Rule{{
+			Filename: "style",
+			Body:     "rule body",
+		}},
+	}
+	writes, err := vibe.Render(c, tools.ScopeUser)
+	if err != nil {
+		t.Fatalf("Render(User): %v", err)
+	}
+	if containsPath(writes, "AGENTS.md") {
+		t.Error("Vibe user scope must not write bare AGENTS.md (Vibe reads ~/.vibe/AGENTS.md)")
+	}
+	if !containsPath(writes, ".vibe/AGENTS.md") {
+		t.Errorf("Vibe user scope: expected .vibe/AGENTS.md, got %v", pathsOf(writes))
+	}
+}
+
+func TestVibeRendersSkills(t *testing.T) {
+	vibe := adapterByName(t, "Mistral Vibe")
+	c := &canonical.Canonical{
+		Skills: []*canonical.Skill{{
+			Dir:                    "foo",
+			Name:                   "foo",
+			Description:            "test skill",
+			AllowedTools:           []string{"read_file", "grep"},
+			DisableModelInvocation: true,
+			Paths:                  []string{"src/**"},
+		}},
+	}
+	for _, scope := range []tools.Scope{tools.ScopeProject, tools.ScopeUser} {
+		writes, err := vibe.Render(c, scope)
+		if err != nil {
+			t.Fatalf("Render(%v): %v", scope, err)
+		}
+		if !containsPath(writes, ".vibe/skills/foo/SKILL.md") {
+			t.Errorf("Vibe %s skills: expected .vibe/skills/foo/SKILL.md, got %v", scope, pathsOf(writes))
+			continue
+		}
+		var skill *tools.FileWrite
+		for i := range writes {
+			if writes[i].Path == ".vibe/skills/foo/SKILL.md" {
+				skill = &writes[i]
+				break
+			}
+		}
+		content := string(skill.Content)
+		for _, want := range []string{"name: foo", "description: test skill", "allowed-tools: [read_file, grep]"} {
+			if !strings.Contains(content, want) {
+				t.Errorf("Vibe skill frontmatter missing %q: %s", want, content)
+			}
+		}
+		for _, omit := range []string{"paths:", "globs:", "disable-model-invocation:", "user-invocable:"} {
+			if strings.Contains(content, omit) {
+				t.Errorf("Vibe skill frontmatter should omit %q (skills rely on Vibe's user-invocable=true default; Vibe has no globs/disable-model-invocation): %s", omit, content)
+			}
+		}
+	}
+}
+
+func TestVibeRendersAgents(t *testing.T) {
+	vibe := adapterByName(t, "Mistral Vibe")
+	c := &canonical.Canonical{
+		Agents: []*canonical.Agent{{
+			Filename:    "reviewer",
+			Name:        "reviewer",
+			Description: "find bugs",
+			Tools:       []string{"read_file", "grep"},
+			Model:       "mistral-medium-3.5",
+			Body:        "Agent system prompt body.\n",
+		}},
+	}
+	for _, scope := range []tools.Scope{tools.ScopeProject, tools.ScopeUser} {
+		writes, err := vibe.Render(c, scope)
+		if err != nil {
+			t.Fatalf("Render(%v): %v", scope, err)
+		}
+		if !containsPath(writes, ".vibe/agents/reviewer.toml") {
+			t.Errorf("Vibe %s agents: expected .vibe/agents/reviewer.toml, got %v", scope, pathsOf(writes))
+		}
+		if !containsPath(writes, ".vibe/prompts/reviewer.md") {
+			t.Errorf("Vibe %s agents: expected .vibe/prompts/reviewer.md, got %v", scope, pathsOf(writes))
+		}
+		for _, w := range writes {
+			switch w.Path {
+			case ".vibe/agents/reviewer.toml":
+				content := string(w.Content)
+				for _, want := range []string{
+					`display_name = "reviewer"`,
+					`description = "find bugs"`,
+					`active_model = "mistral-medium-3.5"`,
+					`enabled_tools = ["read_file", "grep"]`,
+					`system_prompt_id = "reviewer"`,
+				} {
+					if !strings.Contains(content, want) {
+						t.Errorf("Vibe agent TOML missing %q: %s", want, content)
+					}
+				}
+				if w.Concept != tools.ConceptAgents {
+					t.Errorf("Vibe agent TOML Concept: want Agents, got %v", w.Concept)
+				}
+			case ".vibe/prompts/reviewer.md":
+				if got := string(w.Content); got != "Agent system prompt body.\n" {
+					t.Errorf("Vibe prompts file body: got %q, want plain agent body (no frontmatter)", got)
+				}
+				if w.Concept != tools.ConceptAgents {
+					t.Errorf("Vibe prompts file Concept: want Agents (part of agent rendering), got %v", w.Concept)
+				}
+			}
+		}
+	}
+}
+
+func TestVibeAgentsOmitsPromptsWhenBodyEmpty(t *testing.T) {
+	vibe := adapterByName(t, "Mistral Vibe")
+	c := &canonical.Canonical{
+		Agents: []*canonical.Agent{{
+			Filename:    "skeleton",
+			Name:        "skeleton",
+			Description: "no body",
+			Body:        "",
+		}},
+	}
+	writes, _ := vibe.Render(c, tools.ScopeProject)
+	if containsPath(writes, ".vibe/prompts/skeleton.md") {
+		t.Errorf("Vibe should not emit prompts file when agent body is empty; got %v", pathsOf(writes))
+	}
+	for _, w := range writes {
+		if w.Path == ".vibe/agents/skeleton.toml" {
+			if strings.Contains(string(w.Content), "system_prompt_id") {
+				t.Errorf("Vibe agent TOML should omit system_prompt_id when body is empty: %s", string(w.Content))
+			}
+		}
+	}
+}
+
+func TestVibeAgentsOmitsEnabledToolsWhenEmpty(t *testing.T) {
+	vibe := adapterByName(t, "Mistral Vibe")
+	c := &canonical.Canonical{
+		Agents: []*canonical.Agent{{
+			Filename:    "minimal",
+			Name:        "minimal",
+			Description: "no tools",
+			Body:        "body\n",
+		}},
+	}
+	writes, _ := vibe.Render(c, tools.ScopeProject)
+	for _, w := range writes {
+		if w.Path == ".vibe/agents/minimal.toml" {
+			if strings.Contains(string(w.Content), "enabled_tools") {
+				t.Errorf("Vibe agent TOML should omit enabled_tools when canonical Tools is empty: %s", string(w.Content))
+			}
+			return
+		}
+	}
+	t.Fatal("expected .vibe/agents/minimal.toml")
+}
+
+func TestVibeRendersCommands(t *testing.T) {
+	vibe := adapterByName(t, "Mistral Vibe")
+	c := &canonical.Canonical{
+		Commands: []*canonical.Command{{
+			Filename:    "deploy",
+			Description: "Deploy the app",
+			Body:        "deploy steps",
+		}},
+	}
+	for _, scope := range []tools.Scope{tools.ScopeProject, tools.ScopeUser} {
+		writes, err := vibe.Render(c, scope)
+		if err != nil {
+			t.Fatalf("Render(%v): %v", scope, err)
+		}
+		if !containsPath(writes, ".vibe/skills/deploy/SKILL.md") {
+			t.Errorf("Vibe %s commands: expected .vibe/skills/deploy/SKILL.md, got %v", scope, pathsOf(writes))
+			continue
+		}
+		var cmd *tools.FileWrite
+		for i := range writes {
+			if writes[i].Path == ".vibe/skills/deploy/SKILL.md" {
+				cmd = &writes[i]
+				break
+			}
+		}
+		content := string(cmd.Content)
+		for _, want := range []string{"name: deploy", "description: Deploy the app", "user-invocable: true", "deploy steps"} {
+			if !strings.Contains(content, want) {
+				t.Errorf("Vibe command-as-skill missing %q: %s", want, content)
+			}
+		}
+		if cmd.Concept != tools.ConceptCommands {
+			t.Errorf("Vibe command FileWrite Concept: want Commands, got %v", cmd.Concept)
+		}
+	}
+}
+
+func TestVibeCommandsDeprecated(t *testing.T) {
+	vibe := adapterByName(t, "Mistral Vibe")
+	compat := vibe.Supports(tools.ConceptCommands)
+	if !compat.Supported {
+		t.Error("Vibe commands should be Supported=true (rendered as user-invocable skills)")
+	}
+	if !compat.Deprecated {
+		t.Error("Vibe commands should be Deprecated=true (vendor recommends skills)")
+	}
+	if compat.Reason == "" {
+		t.Error("Vibe commands should have a non-empty Reason")
+	}
+	if compat.Replacement != "skills" {
+		t.Errorf("Vibe commands Replacement: got %q, want %q", compat.Replacement, "skills")
+	}
 }

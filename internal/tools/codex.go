@@ -36,8 +36,18 @@ func (a *codexAdapter) SupportsScope(_ Scope) Compatibility {
 
 func (a *codexAdapter) Alias(_ Concept) string { return "" }
 
-func (a *codexAdapter) Notice() string {
-	return "project skills are written to .agents/skills/ (cross-tool), user skills to ~/.codex/skills/"
+func (a *codexAdapter) ConceptInfo(concept Concept) string {
+	switch concept {
+	case ConceptRules:
+		return "Root memory at AGENTS.md (project) or ~/.codex/AGENTS.md (user). Per-file rules append to AGENTS.md — Codex CLI has no per-rule files."
+	case ConceptSkills:
+		return "Project skills at .agents/skills/<dir>/SKILL.md (cross-tool, auto-scanned by Codex). User skills at ~/.codex/skills/."
+	case ConceptAgents:
+		return "Subagents at .codex/agents/<name>.toml (TOML config with developer_instructions field for the body)."
+	case ConceptCommands:
+		return "Codex legacy prompts are deprecated — prefer skills. Commands are not rendered."
+	}
+	return ""
 }
 
 func (a *codexAdapter) Render(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {

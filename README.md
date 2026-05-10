@@ -1,6 +1,6 @@
 # agentsync
 
-Maintain AI tool configs in one place and sync them to Claude Code, OpenCode, Cursor, Gemini CLI, Codex CLI, Cline, JetBrains Junie, and Zed.
+Maintain AI tool configs in one place and sync them to Claude Code, OpenCode, Cursor, Gemini CLI, Codex CLI, Cline, JetBrains Junie, Mistral Vibe, and Zed.
 
 ## Install
 
@@ -62,6 +62,7 @@ The two layers stack: each tool reads its user-level config plus any project-lev
 - **Codex CLI** — root memory at `<workspace>/AGENTS.md` (project) vs `~/.codex/AGENTS.md` (user); user-scope skills go to `~/.codex/skills/` (vs. project-scope `.agents/skills/` for cross-tool sharing)
 - **Cline** — project rules at `.clinerules/<name>.md` and root `AGENTS.md`; user rules at `~/Documents/Cline/Rules/<name>.md`. Workflows: `.clinerules/workflows/` (project) vs `~/Documents/Cline/Workflows/` (user). Skills always at `.cline/skills/`. No user-level `AGENTS.md`.
 - **JetBrains Junie** — root `AGENTS.md` is **project-only** (Junie has no user-scope guidelines path); skills/agents/commands at `.junie/` are honoured at both scopes.
+- **Mistral Vibe** — rules flatten into `AGENTS.md` (project root) or `~/.vibe/AGENTS.md` (user) — Vibe has no per-file/glob rules; skills at `.vibe/skills/<dir>/SKILL.md`; agents emit a TOML config at `.vibe/agents/<name>.toml` plus a Markdown prompt at `.vibe/prompts/<name>.md` referenced by `system_prompt_id`; commands render as user-invocable skills under `.vibe/skills/`.
 
 ## Supported AI tools
 
@@ -74,6 +75,7 @@ The two layers stack: each tool reads its user-level config plus any project-lev
 | Codex CLI | `AGENTS.md` (workspace root; `~/.codex/AGENTS.md` at user scope) | appended to root | `.agents/skills/<dir>/SKILL.md` | `.codex/agents/<name>.toml` | `⚠ deprecated → skills` | `~/.codex/` |
 | Cline | `AGENTS.md` (workspace root; project-only) | `.clinerules/<name>.md` (project); `~/Documents/Cline/Rules/<name>.md` (user) | `.cline/skills/<dir>/SKILL.md` | — | `.clinerules/workflows/<name>.md` (project); `~/Documents/Cline/Workflows/` (user) | `~/.cline/` |
 | JetBrains Junie | `AGENTS.md` (workspace root; project-only) | appended to root | `.junie/skills/<dir>/SKILL.md` | `.junie/agents/<name>.md` | `.junie/commands/<name>.md` | `~/.junie/` |
+| Mistral Vibe | `AGENTS.md` (workspace root; `~/.vibe/AGENTS.md` at user scope) | appended to root | `.vibe/skills/<dir>/SKILL.md` | `.vibe/agents/<name>.toml` + `.vibe/prompts/<name>.md` | `⚠ deprecated → skills` | `~/.vibe/` |
 | Zed | `.rules` (workspace root) | appended to root | — | — | — | `~/.config/zed/` |
 
 `AGENTS.md` at the workspace root is shared by OpenCode and Codex CLI — both tools read it natively.
@@ -171,25 +173,25 @@ Command prompt body in markdown.
 
 ## Concept compatibility
 
-| Concept | Claude Code | OpenCode | Cursor | Gemini CLI | Codex CLI | Cline | JetBrains Junie | Zed |
-|---|---|---|---|---|---|---|---|---|
-| Rules | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Skills | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
-| Agents | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✗ |
-| Commands | ⚠ deprecated | ✓ | ⚠ deprecated | ✓ | ⚠ deprecated | ✓ | ✓ | ✗ |
+| Concept | Claude Code | OpenCode | Cursor | Gemini CLI | Codex CLI | Cline | JetBrains Junie | Mistral Vibe | Zed |
+|---|---|---|---|---|---|---|---|---|---|
+| Rules | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Skills | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Agents | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✗ |
+| Commands | ⚠ deprecated | ✓ | ⚠ deprecated | ✓ | ⚠ deprecated | ✓ | ✓ | ⚠ deprecated | ✗ |
 
 When editing a skill, agent, or command in the TUI, tools that don't support that concept are shown with `✗` and a reason, and are skipped during sync.
 
 ### Field translation across tools
 
-| Canonical field | Claude Code | Cursor | OpenCode | Gemini CLI | Codex CLI | Cline | JetBrains Junie | Zed |
-|---|---|---|---|---|---|---|---|---|
-| `paths` (skill) | `paths:` | `globs:` | — | — | — | — | — | — |
-| `paths` (rule) | `paths:` | `globs:` | — | — | — | `paths:` | — | — |
-| `allowed-tools` | `allowed-tools:` | `allowed-tools:` | `allowed-tools:` | — | — | — | — | — |
-| `disable-model-invocation` | `disable-model-invocation:` | `disable-model-invocation:` | `disable-model-invocation:` | — | — | — | — | — |
-| `tools` (agent) | `tools:` | — | `tools:` | `tools:` | — | — | `tools:` | — |
-| `model` (agent) | `model:` | `model:` | `model:` | `model:` | `model:` | — | `model:` | — |
+| Canonical field | Claude Code | Cursor | OpenCode | Gemini CLI | Codex CLI | Cline | JetBrains Junie | Mistral Vibe | Zed |
+|---|---|---|---|---|---|---|---|---|---|
+| `paths` (skill) | `paths:` | `globs:` | — | — | — | — | — | — | — |
+| `paths` (rule) | `paths:` | `globs:` | — | — | — | `paths:` | — | — | — |
+| `allowed-tools` | `allowed-tools:` | `allowed-tools:` | `allowed-tools:` | — | — | — | — | `allowed-tools:` | — |
+| `disable-model-invocation` | `disable-model-invocation:` | `disable-model-invocation:` | `disable-model-invocation:` | — | — | — | — | — | — |
+| `tools` (agent) | `tools:` | — | `tools:` | `tools:` | — | — | `tools:` | `enabled_tools` (TOML) | — |
+| `model` (agent) | `model:` | `model:` | `model:` | `model:` | `model:` | — | `model:` | `active_model` (TOML) | — |
 
 `—` means the field is not emitted for that tool (unknown fields are silently ignored by most tools; omitting keeps output minimal).
 

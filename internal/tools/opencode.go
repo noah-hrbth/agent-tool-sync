@@ -34,7 +34,19 @@ func (a *openCodeAdapter) SupportsScope(_ Scope) Compatibility {
 
 func (a *openCodeAdapter) Alias(_ Concept) string { return "" }
 
-func (a *openCodeAdapter) Notice() string { return "" }
+func (a *openCodeAdapter) ConceptInfo(concept Concept) string {
+	switch concept {
+	case ConceptRules:
+		return "Root memory at AGENTS.md (project) or ~/.config/opencode/AGENTS.md (user). Per-file rules append to AGENTS.md — OpenCode has no per-rule files."
+	case ConceptSkills:
+		return "Skills at .opencode/skills/<dir>/SKILL.md (project) or ~/.config/opencode/skills/ (user)."
+	case ConceptAgents:
+		return "Subagents at .opencode/agents/<name>.md."
+	case ConceptCommands:
+		return "Commands at .opencode/commands/<name>.md."
+	}
+	return ""
+}
 
 // openCodeBase returns the path prefix relative to the scope's base directory.
 // Project scope: .opencode/. User scope: .config/opencode/ (OpenCode docs:

@@ -36,7 +36,19 @@ func (a *geminiAdapter) Alias(concept Concept) string {
 	return ""
 }
 
-func (a *geminiAdapter) Notice() string { return "" }
+func (a *geminiAdapter) ConceptInfo(concept Concept) string {
+	switch concept {
+	case ConceptRules:
+		return "Root memory at GEMINI.md (project) or ~/.gemini/GEMINI.md (user). Per-file rules append to GEMINI.md — Gemini CLI has no per-rule files."
+	case ConceptSkills:
+		return "Skills at .gemini/skills/<dir>/SKILL.md."
+	case ConceptAgents:
+		return "Subagents at .gemini/agents/<name>.md."
+	case ConceptCommands:
+		return "Commands at .gemini/commands/<name>.toml (TOML format with description + prompt fields)."
+	}
+	return ""
+}
 
 func (a *geminiAdapter) Render(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	rootContent := buildRootMemoryContent(c.AgentsMD, c.Rules)

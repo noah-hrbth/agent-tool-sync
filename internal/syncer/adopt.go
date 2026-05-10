@@ -29,7 +29,8 @@ func AdoptExternal(workspace, path string) error {
 		path == ".opencode/AGENTS.md" ||
 		path == ".config/opencode/AGENTS.md" ||
 		path == "GEMINI.md" ||
-		path == ".gemini/GEMINI.md":
+		path == ".gemini/GEMINI.md" ||
+		path == ".vibe/AGENTS.md":
 		return canonical.SaveAgentsMD(workspace, content)
 
 	case path == ".cursor/rules/general.mdc":
@@ -129,7 +130,8 @@ func matchSkillPath(path string) bool {
 		strings.HasPrefix(path, ".opencode/skills/") ||
 		strings.HasPrefix(path, ".config/opencode/skills/") ||
 		strings.HasPrefix(path, ".cline/skills/") ||
-		strings.HasPrefix(path, ".junie/skills/")) &&
+		strings.HasPrefix(path, ".junie/skills/") ||
+		strings.HasPrefix(path, ".vibe/skills/")) &&
 		strings.HasSuffix(path, "/SKILL.md")
 }
 

@@ -37,7 +37,19 @@ func (a *claudeAdapter) Alias(concept Concept) string {
 	return ""
 }
 
-func (a *claudeAdapter) Notice() string { return "" }
+func (a *claudeAdapter) ConceptInfo(concept Concept) string {
+	switch concept {
+	case ConceptRules:
+		return "Root memory at CLAUDE.md (project) or ~/.claude/CLAUDE.md (user). Per-file rules at .claude/rules/<name>.md."
+	case ConceptSkills:
+		return "Skills at .claude/skills/<dir>/SKILL.md."
+	case ConceptAgents:
+		return "Subagents at .claude/agents/<name>.md."
+	case ConceptCommands:
+		return "Claude Code merged commands into skills on 2026-01-24 — prefer skills. Commands are not rendered."
+	}
+	return ""
+}
 
 func (a *claudeAdapter) Render(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	// Project memory lives at <workspace>/CLAUDE.md (auto-discovered by Claude Code

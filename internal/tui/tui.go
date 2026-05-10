@@ -5,10 +5,14 @@ import (
 	"os"
 	"strings"
 
+	"github.com/atotto/clipboard"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/noah-hrbth/agentsync/internal/canonical"
 	"github.com/noah-hrbth/agentsync/internal/config"
@@ -46,12 +50,20 @@ const (
 )
 
 type fileItem struct {
-	label   string
-	kind    fileKind
-	rule    *canonical.Rule
-	skill   *canonical.Skill
-	agent   *canonical.Agent
-	command *canonical.Command
+	label       string
+	kind        fileKind
+	placeholder bool // true → no underlying entity; group is empty
+	rule        *canonical.Rule
+	skill       *canonical.Skill
+	agent       *canonical.Agent
+	command     *canonical.Command
+}
+
+// pendingSel records a not-yet-loaded selection so a reloadMsg can position
+// the cursor on a freshly created file and auto-enter edit mode.
+type pendingSel struct {
+	kind fileKind
+	slug string
 }
 
 type toolItem struct {
@@ -80,8 +92,8 @@ type scopeSnapshot struct {
 	canonical   *canonical.Canonical
 	config      *config.Config
 	scope       tools.Scope
-	loaded      bool   // false until first activation
-	initialized bool   // false when .agentsync/ doesn't exist for this scope
+	loaded      bool // false until first activation
+	initialized bool // false when .agentsync/ doesn't exist for this scope
 	loadErr     error
 }
 
@@ -109,9 +121,22 @@ type model struct {
 	editor   textarea.Model
 	editBody string // original content before edit
 
+	// new-file prompt (textinput modal)
+	input         textinput.Model
+	inputting     bool
+	inputKind     fileKind
+	inputErr      string
+	pendingSelect *pendingSel
+
+	// delete confirmation modal
+	confirmingDelete bool
+	deleteTarget     int    // index into m.files
+	deleteErr        string // surfaced if removal fails
+
 	// tools screen
-	toolItems []toolItem
-	toolIdx   int
+	toolItems    []toolItem
+	toolIdx      int
+	showToolInfo bool
 
 	// sync screen
 	syncLines []string
@@ -126,7 +151,14 @@ type model struct {
 
 	// status from last syncer.Status() call
 	statusMap map[string]syncer.FileStatus
+
+	// transient one-line status (e.g. "copied to clipboard"); cleared on next keystroke
+	flash string
 }
+
+// clipboardWrite is the seam used by the copy keybinding. Tests override it to
+// avoid shelling out to pbcopy/xclip.
+var clipboardWrite = clipboard.WriteAll
 
 // ---- helpers ----
 
@@ -144,41 +176,68 @@ func initialModel(workspace string, scope tools.Scope, c *canonical.Canonical, c
 	m.files = buildFileItems(c)
 	m.toolItems = buildToolItems(adapters, cfg, workspace)
 	m.preview = viewport.New(80, 20)
+	m.preview.KeyMap = vimViewportKeyMap()
 	m.logView = viewport.New(80, 20)
+	m.logView.KeyMap = vimViewportKeyMap()
 	ta := textarea.New()
 	ta.SetWidth(80)
 	ta.SetHeight(20)
 	ta.CharLimit = 0
 	m.editor = ta
+	ti := textinput.New()
+	ti.CharLimit = 64
+	ti.Width = 40
+	m.input = ti
 	return m
 }
 
 func buildFileItems(c *canonical.Canonical) []fileItem {
 	items := []fileItem{{label: "AGENTS.md", kind: kindAgentsMD}}
-	for _, s := range c.Skills {
-		items = append(items, fileItem{
-			label: fmt.Sprintf("skills/%s/SKILL.md", s.Dir),
-			kind:  kindSkill, skill: s,
-		})
+
+	if len(c.Skills) == 0 {
+		items = append(items, fileItem{label: "(no skills yet — press n to create)", kind: kindSkill, placeholder: true})
+	} else {
+		for _, s := range c.Skills {
+			items = append(items, fileItem{
+				label: fmt.Sprintf("skills/%s/SKILL.md", s.Dir),
+				kind:  kindSkill, skill: s,
+			})
+		}
 	}
-	for _, a := range c.Agents {
-		items = append(items, fileItem{
-			label: fmt.Sprintf("agents/%s.md", a.Filename),
-			kind:  kindAgent, agent: a,
-		})
+
+	if len(c.Agents) == 0 {
+		items = append(items, fileItem{label: "(no subagents yet — press n to create)", kind: kindAgent, placeholder: true})
+	} else {
+		for _, a := range c.Agents {
+			items = append(items, fileItem{
+				label: fmt.Sprintf("agents/%s.md", a.Filename),
+				kind:  kindAgent, agent: a,
+			})
+		}
 	}
-	for _, cmd := range c.Commands {
-		items = append(items, fileItem{
-			label: fmt.Sprintf("commands/%s.md", cmd.Filename),
-			kind:  kindCommand, command: cmd,
-		})
+
+	if len(c.Commands) == 0 {
+		items = append(items, fileItem{label: "(no commands yet — press n to create)", kind: kindCommand, placeholder: true})
+	} else {
+		for _, cmd := range c.Commands {
+			items = append(items, fileItem{
+				label: fmt.Sprintf("commands/%s.md", cmd.Filename),
+				kind:  kindCommand, command: cmd,
+			})
+		}
 	}
-	for _, r := range c.Rules {
-		items = append(items, fileItem{
-			label: fmt.Sprintf("rules/%s.md", r.Filename),
-			kind:  kindRule, rule: r,
-		})
+
+	if len(c.Rules) == 0 {
+		items = append(items, fileItem{label: "(no rules yet — press n to create)", kind: kindRule, placeholder: true})
+	} else {
+		for _, r := range c.Rules {
+			items = append(items, fileItem{
+				label: fmt.Sprintf("rules/%s.md", r.Filename),
+				kind:  kindRule, rule: r,
+			})
+		}
 	}
+
 	return items
 }
 
@@ -194,11 +253,16 @@ func buildToolItems(adapters []tools.Adapter, cfg *config.Config, workspace stri
 	return items
 }
 
+// fileContent returns the raw on-disk content for the file at idx.
+// Used by the editor — no cosmetic spacing.
 func (m *model) fileContent(idx int) string {
 	if idx < 0 || idx >= len(m.files) {
 		return ""
 	}
 	f := m.files[idx]
+	if f.placeholder {
+		return placeholderHint(f.kind)
+	}
 	switch f.kind {
 	case kindAgentsMD:
 		return m.canonical.AgentsMD
@@ -230,11 +294,76 @@ func (m *model) fileContent(idx int) string {
 	return ""
 }
 
+// previewContent is fileContent with cosmetic spacing applied for the preview pane.
+func (m *model) previewContent(idx int) string {
+	s := m.fileContent(idx)
+	if idx < 0 || idx >= len(m.files) || m.files[idx].placeholder {
+		return s
+	}
+	if m.files[idx].kind == kindAgentsMD {
+		return s
+	}
+	return spaceFrontmatter(s)
+}
+
+// spaceFrontmatter adds a blank line between the closing "---" fence and the
+// body for nicer preview rendering. Display-only — disk format is unchanged.
+func spaceFrontmatter(s string) string {
+	const fence = "\n---\n"
+	idx := strings.Index(s, fence)
+	if idx < 0 {
+		return s
+	}
+	bodyStart := idx + len(fence)
+	if bodyStart >= len(s) {
+		return s
+	}
+	if s[bodyStart] == '\n' {
+		return s
+	}
+	return s[:bodyStart] + "\n" + s[bodyStart:]
+}
+
+// vimViewportKeyMap returns the viewport keybindings without plain "u"/"d"
+// half-page bindings, freeing those keys for our own commands. ctrl+u/ctrl+d
+// keep working for half-page scroll, matching vim convention.
+func vimViewportKeyMap() viewport.KeyMap {
+	km := viewport.DefaultKeyMap()
+	km.HalfPageUp = key.NewBinding(
+		key.WithKeys("ctrl+u"),
+		key.WithHelp("ctrl+u", "½ page up"),
+	)
+	km.HalfPageDown = key.NewBinding(
+		key.WithKeys("ctrl+d"),
+		key.WithHelp("ctrl+d", "½ page down"),
+	)
+	return km
+}
+
+// placeholderHint returns the preview text shown when an empty-group
+// placeholder row is selected.
+func placeholderHint(k fileKind) string {
+	switch k {
+	case kindSkill:
+		return "No skills yet.\n\nPress [n] to create a new skill folder.\nThe folder name you choose becomes the skill's dir; SKILL.md is created automatically inside it."
+	case kindAgent:
+		return "No subagents yet.\n\nPress [n] to create a new subagent file."
+	case kindCommand:
+		return "No commands yet.\n\nPress [n] to create a new slash command file."
+	case kindRule:
+		return "No rules yet.\n\nPress [n] to create a new rule file."
+	}
+	return ""
+}
+
 func (m *model) fileStatusIcon(idx int) string {
 	if idx < 0 || idx >= len(m.files) {
 		return styleIconNew
 	}
 	f := m.files[idx]
+	if f.placeholder {
+		return styleIconPlaceholder
+	}
 	worst := -1 // sentinel: no matching paths found
 	for path, status := range m.statusMap {
 		if matchesFileItem(f, path) {
@@ -379,6 +508,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.fileIdx >= len(m.files) {
 			m.fileIdx = 0
 		}
+		// If a new file was just created, jump to it and open the editor.
+		if m.pendingSelect != nil {
+			ps := *m.pendingSelect
+			m.pendingSelect = nil
+			if idx := findFileIndex(m.files, ps.kind, ps.slug); idx >= 0 {
+				m.fileIdx = idx
+				m = m.startEdit()
+			}
+		}
 		return m, checkStatusCmd(m.workspace, m.canonical, m.adapters, m.config, m.scope)
 	}
 
@@ -387,16 +525,41 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateEditor(msg)
 	}
 
+	// When the new-file textinput modal is open, forward keys to it.
+	if m.inputting {
+		return m.updateInput(msg)
+	}
+
+	// When the delete confirmation modal is open, forward keys to it.
+	if m.confirmingDelete {
+		return m.updateDeleteConfirm(msg)
+	}
+
 	// When divergence modal is shown
 	if m.showDiv {
 		return m.updateDivModal(msg)
 	}
 
+	// When tool info modal is open
+	if m.showToolInfo {
+		return m.updateToolInfo(msg)
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		m.flash = ""
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
+		case "c":
+			if m.screen == screenFiles && len(m.files) > 0 && !m.files[m.fileIdx].placeholder {
+				if err := clipboardWrite(m.fileContent(m.fileIdx)); err != nil {
+					m.flash = "✗ copy failed: " + err.Error()
+				} else {
+					m.flash = "✓ copied " + m.files[m.fileIdx].label + " to clipboard"
+				}
+				return m, nil
+			}
 		case "tab", "shift+tab", "right", "left", "l", "h", "1", "2", "3":
 			switch msg.String() {
 			case "tab", "right", "l":
@@ -420,6 +583,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.screen == screenFiles && len(m.files) > 0 {
 				m = m.startEdit()
 			}
+		case "n":
+			if m.screen == screenFiles && len(m.files) > 0 {
+				m = m.startNewFile()
+			}
+		case "d":
+			if m.screen == screenFiles && len(m.files) > 0 {
+				m = m.startDeleteFile()
+			}
 		case "s":
 			if m.screen == screenFiles || m.screen == screenSync {
 				m.screen = screenSync
@@ -427,9 +598,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m, sc = m.startSync()
 				return m, sc
 			}
-		case "enter", " ":
+		case " ":
 			if m.screen == screenTools {
 				m = m.toggleTool()
+			}
+		case "enter":
+			if m.screen == screenTools && len(m.toolItems) > 0 {
+				m.showToolInfo = true
 			}
 		case "g":
 			var cmd tea.Cmd
@@ -471,6 +646,16 @@ func (m model) updateEditor(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.editor, cmd = m.editor.Update(msg)
 	return m, cmd
+}
+
+func (m model) updateToolInfo(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if km, ok := msg.(tea.KeyMsg); ok {
+		switch km.String() {
+		case "esc", "enter", "q":
+			m.showToolInfo = false
+		}
+	}
+	return m, nil
 }
 
 func (m model) updateDivModal(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -542,16 +727,294 @@ func (m *model) updatePreview() {
 	if m.screen != screenFiles || len(m.files) == 0 {
 		return
 	}
-	m.preview.SetContent(m.fileContent(m.fileIdx))
+	m.preview.SetContent(m.previewContent(m.fileIdx))
 }
 
 func (m model) startEdit() model {
+	if m.fileIdx < 0 || m.fileIdx >= len(m.files) {
+		return m
+	}
+	if m.files[m.fileIdx].placeholder {
+		return m
+	}
 	content := m.fileContent(m.fileIdx)
 	m.editBody = content
 	m.editor.SetValue(content)
 	m.editor.Focus()
 	m.editing = true
 	return m
+}
+
+// startNewFile opens the textinput modal for creating a new file in the
+// group at the current cursor position. AGENTS.md is a single-file concept
+// so it's a no-op there.
+func (m model) startNewFile() model {
+	if m.fileIdx < 0 || m.fileIdx >= len(m.files) {
+		return m
+	}
+	kind := m.files[m.fileIdx].kind
+	if kind == kindAgentsMD {
+		return m
+	}
+	m.inputKind = kind
+	m.inputErr = ""
+	m.input.Reset()
+	m.input.Placeholder = newFilePlaceholder(kind)
+	// fit textinput to modal interior (width minus border + padding)
+	if w := modalWidth(m.w) - 6; w > 10 {
+		m.input.Width = w
+	}
+	m.input.Focus()
+	m.inputting = true
+	return m
+}
+
+// newFilePlaceholder returns the textinput placeholder text for a kind.
+func newFilePlaceholder(k fileKind) string {
+	switch k {
+	case kindSkill:
+		return "skill folder name (e.g. release-prep)"
+	case kindAgent:
+		return "subagent slug (e.g. adapter-reviewer)"
+	case kindCommand:
+		return "command slug (e.g. ship)"
+	case kindRule:
+		return "rule slug (e.g. style-guide)"
+	}
+	return ""
+}
+
+// updateInput handles key dispatch while the new-file textinput modal is open.
+func (m model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if km, ok := msg.(tea.KeyMsg); ok {
+		switch km.String() {
+		case "esc":
+			m.inputting = false
+			m.inputErr = ""
+			m.input.Reset()
+			m.input.Blur()
+			return m, nil
+		case "enter":
+			return m.submitNewFile()
+		}
+	}
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+// submitNewFile validates the typed name, creates the canonical file on disk,
+// and triggers a reload that will position the cursor and open the editor.
+func (m model) submitNewFile() (tea.Model, tea.Cmd) {
+	slug, err := validateNewName(m.inputKind, m.input.Value(), m.canonical)
+	if err != nil {
+		m.inputErr = err.Error()
+		return m, nil
+	}
+	switch m.inputKind {
+	case kindSkill:
+		if _, err := canonical.CreateEmptySkill(m.workspace, slug); err != nil {
+			m.inputErr = err.Error()
+			return m, nil
+		}
+	case kindAgent:
+		if _, err := canonical.CreateEmptyAgent(m.workspace, slug); err != nil {
+			m.inputErr = err.Error()
+			return m, nil
+		}
+	case kindCommand:
+		if _, err := canonical.CreateEmptyCommand(m.workspace, slug); err != nil {
+			m.inputErr = err.Error()
+			return m, nil
+		}
+	case kindRule:
+		if _, err := canonical.CreateEmptyRule(m.workspace, slug); err != nil {
+			m.inputErr = err.Error()
+			return m, nil
+		}
+	default:
+		m.inputErr = "cannot create files of this kind"
+		return m, nil
+	}
+	m.inputting = false
+	m.input.Reset()
+	m.input.Blur()
+	m.pendingSelect = &pendingSel{kind: m.inputKind, slug: slug}
+	return m, reloadCmd(m.workspace)
+}
+
+// validateNewName cleans and validates a user-typed slug for a new file.
+// Rules: trim, strip trailing .md, must match [a-z0-9._-]+, reject "."/"..",
+// reject reserved rule names, reject duplicates against existing canonical.
+func validateNewName(kind fileKind, raw string, c *canonical.Canonical) (string, error) {
+	slug := strings.TrimSpace(raw)
+	if slug == "" {
+		return "", fmt.Errorf("name required")
+	}
+	slug = strings.TrimSuffix(slug, ".md")
+	if slug == "" {
+		return "", fmt.Errorf("name required")
+	}
+	if slug == "." || slug == ".." {
+		return "", fmt.Errorf("invalid name")
+	}
+	for _, r := range slug {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= '0' && r <= '9':
+		case r == '-' || r == '_' || r == '.':
+		default:
+			return "", fmt.Errorf("use lowercase letters, digits, dot, underscore, hyphen")
+		}
+	}
+	if kind == kindRule && canonical.IsReservedRuleName(slug) {
+		return "", fmt.Errorf("'%s' is reserved (Cursor catch-all)", slug)
+	}
+	if c != nil {
+		switch kind {
+		case kindSkill:
+			for _, s := range c.Skills {
+				if s.Dir == slug {
+					return "", fmt.Errorf("skill '%s' already exists", slug)
+				}
+			}
+		case kindAgent:
+			for _, a := range c.Agents {
+				if a.Filename == slug {
+					return "", fmt.Errorf("subagent '%s' already exists", slug)
+				}
+			}
+		case kindCommand:
+			for _, cmd := range c.Commands {
+				if cmd.Filename == slug {
+					return "", fmt.Errorf("command '%s' already exists", slug)
+				}
+			}
+		case kindRule:
+			for _, r := range c.Rules {
+				if r.Filename == slug {
+					return "", fmt.Errorf("rule '%s' already exists", slug)
+				}
+			}
+		}
+	}
+	return slug, nil
+}
+
+// findFileIndex returns the position of the fileItem matching kind+slug
+// (Skill.Dir, or Filename for the others), or -1 if not found.
+func findFileIndex(files []fileItem, kind fileKind, slug string) int {
+	for i, f := range files {
+		if f.kind != kind || f.placeholder {
+			continue
+		}
+		switch kind {
+		case kindSkill:
+			if f.skill != nil && f.skill.Dir == slug {
+				return i
+			}
+		case kindAgent:
+			if f.agent != nil && f.agent.Filename == slug {
+				return i
+			}
+		case kindCommand:
+			if f.command != nil && f.command.Filename == slug {
+				return i
+			}
+		case kindRule:
+			if f.rule != nil && f.rule.Filename == slug {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// startDeleteFile opens the confirm modal for the file at the cursor.
+// AGENTS.md and placeholder rows are not deletable.
+func (m model) startDeleteFile() model {
+	if m.fileIdx < 0 || m.fileIdx >= len(m.files) {
+		return m
+	}
+	f := m.files[m.fileIdx]
+	if f.placeholder || f.kind == kindAgentsMD {
+		return m
+	}
+	m.confirmingDelete = true
+	m.deleteTarget = m.fileIdx
+	m.deleteErr = ""
+	return m
+}
+
+// updateDeleteConfirm handles key dispatch while the delete confirm modal is open.
+func (m model) updateDeleteConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
+	km, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+	switch km.String() {
+	case "y", "Y", "enter":
+		return m.confirmDelete()
+	case "n", "N", "esc", "q":
+		m.confirmingDelete = false
+		m.deleteErr = ""
+		return m, nil
+	}
+	return m, nil
+}
+
+// confirmDelete removes the canonical file/folder for the targeted item and
+// triggers a reload. The cursor is moved up by one when possible so it lands
+// on a sensible neighbor after the list rebuilds.
+func (m model) confirmDelete() (tea.Model, tea.Cmd) {
+	if m.deleteTarget < 0 || m.deleteTarget >= len(m.files) {
+		m.confirmingDelete = false
+		return m, nil
+	}
+	f := m.files[m.deleteTarget]
+	var err error
+	switch f.kind {
+	case kindSkill:
+		if f.skill != nil {
+			err = canonical.DeleteSkill(m.workspace, f.skill.Dir)
+		}
+	case kindAgent:
+		if f.agent != nil {
+			err = canonical.DeleteAgent(m.workspace, f.agent.Filename)
+		}
+	case kindCommand:
+		if f.command != nil {
+			err = canonical.DeleteCommand(m.workspace, f.command.Filename)
+		}
+	case kindRule:
+		if f.rule != nil {
+			err = canonical.DeleteRule(m.workspace, f.rule.Filename)
+		}
+	default:
+		m.confirmingDelete = false
+		return m, nil
+	}
+	if err != nil {
+		m.deleteErr = err.Error()
+		return m, nil
+	}
+	m.confirmingDelete = false
+	if m.fileIdx > 0 {
+		m.fileIdx--
+	}
+	return m, reloadCmd(m.workspace)
+}
+
+// deleteTargetLabel returns the label shown in the confirm modal.
+func (m model) deleteTargetLabel() string {
+	if m.deleteTarget < 0 || m.deleteTarget >= len(m.files) {
+		return ""
+	}
+	f := m.files[m.deleteTarget]
+	if f.kind == kindSkill && f.skill != nil {
+		return "skills/" + f.skill.Dir + "/  (entire folder)"
+	}
+	return f.label
 }
 
 func (m model) toggleTool() model {
@@ -612,6 +1075,13 @@ func (m model) toggleScope() (model, tea.Cmd) {
 	m.fileIdx = 0
 	m.statusMap = map[string]syncer.FileStatus{}
 	m.divResults = nil
+	m.inputting = false
+	m.inputErr = ""
+	m.input.Reset()
+	m.input.Blur()
+	m.pendingSelect = nil
+	m.confirmingDelete = false
+	m.deleteErr = ""
 	m.inactive = &leaving
 
 	if !entering.initialized {
@@ -846,6 +1316,8 @@ func ruleAppendNotice(adapterName string) string {
 		return "appended to .rules"
 	case "JetBrains Junie":
 		return "appended to AGENTS.md"
+	case "Mistral Vibe":
+		return "appended to AGENTS.md"
 	default:
 		return ""
 	}
@@ -899,8 +1371,17 @@ func (m model) View() string {
 	footer := m.renderFooter()
 
 	view := lipgloss.JoinVertical(lipgloss.Left, tabs, body, footer)
+	if m.inputting {
+		view = m.overlayInputModal(view)
+	}
+	if m.confirmingDelete {
+		view = m.overlayDeleteConfirm(view)
+	}
 	if m.showDiv {
 		view = m.overlayDivModal(view)
+	}
+	if m.showToolInfo {
+		view = m.overlayToolInfo(view)
 	}
 	if m.err != nil {
 		view = lipgloss.JoinVertical(lipgloss.Left, view,
@@ -923,21 +1404,101 @@ func (m model) renderTabs() string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, append(rendered, lipgloss.NewStyle().Foreground(colorMuted).Render(scopeLabel))...)
 }
 
+type keyHint struct{ key, label string }
+
+const (
+	footerHintGap  = "   "
+	footerGroupGap = "       "
+)
+
+func renderKeyHint(h keyHint) string {
+	return styleFooterKey.Render(h.key) + " " + styleFooterLabel.Render(h.label)
+}
+
+func joinKeyGroups(groups ...[]keyHint) string {
+	rendered := make([]string, 0, len(groups))
+	for _, g := range groups {
+		if len(g) == 0 {
+			continue
+		}
+		hints := make([]string, len(g))
+		for i, h := range g {
+			hints[i] = renderKeyHint(h)
+		}
+		rendered = append(rendered, strings.Join(hints, footerHintGap))
+	}
+	return strings.Join(rendered, footerGroupGap)
+}
+
 func (m model) renderFooter() string {
 	var keys string
 	switch {
 	case m.editing:
-		keys = "ctrl+s save • esc cancel"
+		keys = joinKeyGroups(
+			[]keyHint{{"ctrl+s", "save"}},
+			[]keyHint{{"esc", "cancel"}},
+		)
+	case m.inputting:
+		keys = joinKeyGroups(
+			[]keyHint{{"enter", "create"}},
+			[]keyHint{{"esc", "cancel"}},
+		)
+	case m.confirmingDelete:
+		keys = joinKeyGroups(
+			[]keyHint{{"y", "confirm"}},
+			[]keyHint{{"n/esc", "cancel"}},
+		)
 	case m.showDiv:
-		keys = "a adopt • o overwrite • d defer • enter apply • esc cancel"
+		keys = joinKeyGroups(
+			[]keyHint{{"a", "adopt"}, {"o", "overwrite"}, {"d", "defer"}},
+			[]keyHint{{"enter", "apply"}},
+			[]keyHint{{"esc", "cancel"}},
+		)
 	case m.screen == screenFiles:
-		keys = "j/k move  •  u/d scroll  •  e edit  •  s sync  •  g scope  •  h/← l/→ tabs  •  q quit"
+		canCreate := len(m.files) > 0 && m.files[m.fileIdx].kind != kindAgentsMD
+		canDelete := canCreate && !m.files[m.fileIdx].placeholder
+		canCopy := len(m.files) > 0 && !m.files[m.fileIdx].placeholder
+		actions := []keyHint{}
+		if canCreate {
+			actions = append(actions, keyHint{"n", "new"})
+		}
+		actions = append(actions, keyHint{"e", "edit"})
+		if canDelete {
+			actions = append(actions, keyHint{"d", "delete"})
+		}
+		if canCopy {
+			actions = append(actions, keyHint{"c", "copy"})
+		}
+		keys = joinKeyGroups(
+			actions,
+			[]keyHint{{"s", "sync"}},
+			[]keyHint{{"q", "quit"}},
+		)
+	case m.showToolInfo:
+		keys = joinKeyGroups(
+			[]keyHint{{"esc/enter", "close"}},
+		)
 	case m.screen == screenTools:
-		keys = "j/k move  •  space toggle  •  g scope  •  h/← l/→ tabs  •  q quit"
+		keys = joinKeyGroups(
+			[]keyHint{{"space", "toggle"}, {"enter", "info"}},
+			[]keyHint{{"s", "sync"}},
+			[]keyHint{{"q", "quit"}},
+		)
 	case m.screen == screenSync:
-		keys = "s sync  •  g scope  •  h/← l/→ tabs  •  q quit"
+		keys = joinKeyGroups(
+			[]keyHint{{"s", "sync"}},
+			[]keyHint{{"q", "quit"}},
+		)
 	}
-	return styleFooter.Render(keys)
+	rendered := styleFooter.Render(keys)
+	if m.flash != "" {
+		flashColor := colorSuccess
+		if strings.HasPrefix(m.flash, "✗") {
+			flashColor = colorDanger
+		}
+		rendered += "  " + lipgloss.NewStyle().Foreground(flashColor).Render(m.flash)
+	}
+	return rendered
 }
 
 // groupHeader returns the section header label for the given fileKind, or an
@@ -978,11 +1539,21 @@ func (m model) viewFiles() string {
 		prevKind = f.kind
 
 		icon := m.fileStatusIcon(i)
+		label := f.label
+		if f.placeholder {
+			label = stylePlaceholderRow.Render(f.label)
+		}
 		var row string
 		if i == m.fileIdx {
-			row = styleCursorMark.Render("▍ ") + icon + "  " + styleSelected.Render(f.label)
+			selected := f.label
+			if f.placeholder {
+				selected = stylePlaceholderRow.Render(f.label)
+			} else {
+				selected = styleSelected.Render(f.label)
+			}
+			row = styleCursorMark.Render("▍ ") + icon + "  " + selected
 		} else {
-			row = "  " + icon + "  " + f.label
+			row = "  " + icon + "  " + label
 		}
 		listLines = append(listLines, row)
 	}
@@ -991,9 +1562,16 @@ func (m model) viewFiles() string {
 	leftPanel := stylePanelBorderActive.Width(leftW).Height(m.h - 4).Render(listContent)
 
 	// right: preview or editor
+	const previewPadX = 2
+	previewInnerW := rightW - 2*previewPadX
+	if previewInnerW < 1 {
+		previewInnerW = 1
+	}
+	rightPanelStyle := stylePanelBorder.Padding(0, previewPadX)
 	var rightPanel string
 	if m.editing {
-		rightPanel = stylePanelBorder.Width(rightW).Height(m.h - 4).Render(m.editor.View())
+		m.editor.SetWidth(previewInnerW)
+		rightPanel = rightPanelStyle.Width(rightW).Height(m.h - 4).Render(m.editor.View())
 	} else {
 		// compatibility badges
 		var badges []string
@@ -1033,13 +1611,13 @@ func (m model) viewFiles() string {
 			}
 		}
 
-		m.preview.Width = rightW - 2
+		m.preview.Width = previewInnerW
 		m.preview.Height = m.h - 4 - len(badges) - 3
-		m.preview.SetContent(m.fileContent(m.fileIdx))
+		m.preview.SetContent(ansi.Wrap(m.previewContent(m.fileIdx), previewInnerW, " -"))
 
 		badgeStr := strings.Join(badges, "\n")
 		rightContent := badgeStr + "\n\n" + m.preview.View()
-		rightPanel = stylePanelBorder.Width(rightW).Height(m.h - 4).Render(rightContent)
+		rightPanel = rightPanelStyle.Width(rightW).Height(m.h - 4).Render(rightContent)
 	}
 
 	return lipgloss.NewStyle().MarginLeft(1).Render(lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel))
@@ -1089,9 +1667,6 @@ func (m model) viewTools() string {
 			row = "  " + fmt.Sprintf("%s  %-14s  %-15s  %s", check, item.adapter.Name(), installed, strings.Join(conceptStr, "  "))
 		}
 		lines = append(lines, row)
-		if note := item.adapter.Notice(); note != "" {
-			lines = append(lines, lipgloss.NewStyle().Foreground(colorMuted).Render("       ↳ "+note))
-		}
 	}
 
 	content := strings.Join(lines, "\n")
@@ -1150,14 +1725,214 @@ func (m model) overlayDivModal(base string) string {
 	modal := styleModalBorder.
 		Width(m.w - 8).
 		Render(strings.Join(lines, "\n"))
+	return placeOverlay(base, modal, m.w, m.h)
+}
 
-	// center the modal vertically
-	topPad := (m.h - strings.Count(modal, "\n") - 4) / 2
-	if topPad < 0 {
-		topPad = 0
+// placeOverlay composites overlay onto base, centered in a w×h frame, so the
+// background TUI remains visible around (and behind transparent edges of) the
+// modal. Both inputs may contain ANSI escape codes — line splicing uses
+// ansi.Cut so SGR state in either input doesn't leak across the splice.
+func placeOverlay(base, overlay string, w, h int) string {
+	overlayLines := strings.Split(overlay, "\n")
+	overlayWidth := lipgloss.Width(overlay)
+	overlayHeight := len(overlayLines)
+
+	x := (w - overlayWidth) / 2
+	y := (h - overlayHeight) / 2
+	if x < 0 {
+		x = 0
 	}
-	padding := strings.Repeat("\n", topPad)
-	return padding + modal
+	if y < 0 {
+		y = 0
+	}
+
+	baseLines := strings.Split(base, "\n")
+	for len(baseLines) < h {
+		baseLines = append(baseLines, "")
+	}
+
+	const sgrReset = "\x1b[0m"
+	for i, ovLine := range overlayLines {
+		row := y + i
+		if row < 0 || row >= len(baseLines) {
+			continue
+		}
+		bg := baseLines[row]
+		bgWidth := lipgloss.Width(bg)
+		ovWidth := lipgloss.Width(ovLine)
+
+		// Pad bg right edge with spaces so the splice has somewhere to land.
+		needed := x + ovWidth
+		if bgWidth < needed {
+			bg += strings.Repeat(" ", needed-bgWidth)
+			bgWidth = needed
+		}
+
+		left := ansi.Cut(bg, 0, x)
+		right := ""
+		if bgWidth > x+ovWidth {
+			right = ansi.Cut(bg, x+ovWidth, bgWidth)
+		}
+		baseLines[row] = left + sgrReset + ovLine + sgrReset + right
+	}
+
+	return strings.Join(baseLines, "\n")
+}
+
+// overlayToolInfo renders a centered modal describing the currently-selected
+// tool's per-concept output paths and any deviations from the obvious default.
+func (m model) overlayToolInfo(base string) string {
+	if m.toolIdx < 0 || m.toolIdx >= len(m.toolItems) {
+		return base
+	}
+	item := m.toolItems[m.toolIdx]
+	a := item.adapter
+
+	width := m.w * 2 / 3
+	if width < 50 {
+		width = 50
+	}
+	if width > m.w-4 {
+		width = m.w - 4
+	}
+
+	var lines []string
+	lines = append(lines, styleInputLabel.Render(a.Name()))
+
+	scopeCompat := a.SupportsScope(m.scope)
+	installStatus := "not installed"
+	if item.install.Found {
+		installStatus = "installed"
+	}
+	statusLine := fmt.Sprintf("%s · %s scope", installStatus, m.scope)
+	lines = append(lines, lipgloss.NewStyle().Foreground(colorMuted).Render(statusLine))
+	if !scopeCompat.Supported && scopeCompat.Reason != "" {
+		lines = append(lines, lipgloss.NewStyle().Foreground(colorWarn).Render("⚠ "+scopeCompat.Reason))
+	}
+	lines = append(lines, "")
+
+	concepts := []tools.Concept{tools.ConceptRules, tools.ConceptSkills, tools.ConceptAgents, tools.ConceptCommands}
+	conceptLabels := map[tools.Concept]string{
+		tools.ConceptRules:    "rules",
+		tools.ConceptSkills:   "skills",
+		tools.ConceptAgents:   "agents",
+		tools.ConceptCommands: "commands",
+	}
+	// Modal Width(width) = content + padding (border is added on top by lipgloss).
+	// Inner text area = width - padding(4). Each detail line is prefixed with a
+	// 4-space indent, so wrap to (innerArea - 4) so prefix+text fits in one line
+	// and lipgloss never re-wraps onto an unindented continuation row.
+	const indent = "    "
+	innerArea := width - 4
+	wrapWidth := innerArea - len(indent)
+	if wrapWidth < 20 {
+		wrapWidth = 20
+	}
+
+	for i, concept := range concepts {
+		compat := a.Supports(concept)
+		var badge string
+		switch {
+		case compat.Supported && !compat.Deprecated:
+			badge = styleBadgeOk
+		case compat.Deprecated:
+			badge = styleBadgeWarn
+		default:
+			badge = styleBadgeFail
+		}
+
+		header := badge + " " + lipgloss.NewStyle().Bold(true).Render(conceptLabels[concept])
+		if compat.Deprecated && compat.Replacement != "" {
+			header += lipgloss.NewStyle().Foreground(colorMuted).Render("  → " + compat.Replacement)
+		}
+		lines = append(lines, header)
+
+		var detail string
+		if info := a.ConceptInfo(concept); info != "" {
+			detail = info
+		} else if compat.Reason != "" {
+			detail = compat.Reason
+		}
+		if detail != "" {
+			wrapped := ansi.Wrap(detail, wrapWidth, " -")
+			for _, l := range strings.Split(wrapped, "\n") {
+				lines = append(lines, indent+lipgloss.NewStyle().Foreground(colorMuted).Render(l))
+			}
+		}
+		if i < len(concepts)-1 {
+			lines = append(lines, "")
+		}
+	}
+
+	modal := styleModalBorder.Width(width).Render(strings.Join(lines, "\n"))
+	return placeOverlay(base, modal, m.w, m.h)
+}
+
+// overlayInputModal renders the new-file textinput modal centered on top of
+// the base view.
+func (m model) overlayInputModal(base string) string {
+	title := newFileTitle(m.inputKind)
+	var lines []string
+	lines = append(lines,
+		styleInputLabel.Render(title),
+		"",
+		m.input.View(),
+	)
+	if m.inputErr != "" {
+		lines = append(lines, "", styleInputError.Render(m.inputErr))
+	}
+	lines = append(lines, "", styleFooter.Render("enter create • esc cancel"))
+
+	modal := styleModalBorder.Width(modalWidth(m.w)).Render(strings.Join(lines, "\n"))
+	return placeOverlay(base, modal, m.w, m.h)
+}
+
+// overlayDeleteConfirm renders the delete confirmation modal centered on the base view.
+func (m model) overlayDeleteConfirm(base string) string {
+	var lines []string
+	lines = append(lines,
+		styleInputLabel.Render("Delete file?"),
+		"",
+		m.deleteTargetLabel(),
+	)
+	if m.deleteErr != "" {
+		lines = append(lines, "", styleInputError.Render(m.deleteErr))
+	}
+	lines = append(lines, "", styleFooter.Render("y / enter confirm  •  n / esc cancel"))
+
+	modal := styleModalBorder.Width(modalWidth(m.w)).Render(strings.Join(lines, "\n"))
+	return placeOverlay(base, modal, m.w, m.h)
+}
+
+// modalWidth picks a narrow modal width clamped to a sensible range so the
+// box stays compact even on wide terminals.
+func modalWidth(termW int) int {
+	w := termW * 2 / 5
+	if w < 44 {
+		w = 44
+	}
+	if w > 72 {
+		w = 72
+	}
+	if w > termW-4 {
+		w = termW - 4
+	}
+	return w
+}
+
+// newFileTitle returns the textinput modal title for a kind.
+func newFileTitle(k fileKind) string {
+	switch k {
+	case kindSkill:
+		return "Add new Skill"
+	case kindAgent:
+		return "Add new Subagent"
+	case kindCommand:
+		return "Add new Command"
+	case kindRule:
+		return "Add new Rule"
+	}
+	return "Add new file"
 }
 
 // ---- Run ----

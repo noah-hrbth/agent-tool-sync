@@ -71,6 +71,67 @@ func SaveRule(workspace string, r *Rule) error {
 	return os.WriteFile(path, []byte(out), 0o644)
 }
 
+// DeleteRule removes .agentsync/rules/<slug>.md.
+func DeleteRule(workspace, slug string) error {
+	return os.Remove(filepath.Join(workspace, ".agentsync", "rules", slug+".md"))
+}
+
+// DeleteSkill removes the entire .agentsync/skills/<dir>/ folder.
+func DeleteSkill(workspace, dir string) error {
+	return os.RemoveAll(filepath.Join(workspace, ".agentsync", "skills", dir))
+}
+
+// DeleteAgent removes .agentsync/agents/<slug>.md.
+func DeleteAgent(workspace, slug string) error {
+	return os.Remove(filepath.Join(workspace, ".agentsync", "agents", slug+".md"))
+}
+
+// DeleteCommand removes .agentsync/commands/<slug>.md.
+func DeleteCommand(workspace, slug string) error {
+	return os.Remove(filepath.Join(workspace, ".agentsync", "commands", slug+".md"))
+}
+
+// CreateEmptyRule writes a minimal rule file at .agentsync/rules/<slug>.md
+// and returns the populated struct. Body is set to "# <slug>\n" so the file
+// isn't a degenerate stub when all frontmatter fields are omitempty.
+func CreateEmptyRule(workspace, slug string) (*Rule, error) {
+	r := &Rule{Filename: slug, Body: "# " + slug + "\n"}
+	if err := SaveRule(workspace, r); err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+// CreateEmptySkill writes a minimal skill at .agentsync/skills/<dir>/SKILL.md
+// (Name defaults to dir, Description empty) and returns the populated struct.
+func CreateEmptySkill(workspace, dir string) (*Skill, error) {
+	s := &Skill{Dir: dir, Name: dir, Description: "", Body: "# " + dir + "\n"}
+	if err := SaveSkill(workspace, s); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// CreateEmptyAgent writes a minimal subagent at .agentsync/agents/<slug>.md
+// and returns the populated struct.
+func CreateEmptyAgent(workspace, slug string) (*Agent, error) {
+	a := &Agent{Filename: slug, Name: slug, Description: "", Body: "# " + slug + "\n"}
+	if err := SaveAgent(workspace, a); err != nil {
+		return nil, err
+	}
+	return a, nil
+}
+
+// CreateEmptyCommand writes a minimal command at .agentsync/commands/<slug>.md
+// and returns the populated struct.
+func CreateEmptyCommand(workspace, slug string) (*Command, error) {
+	cmd := &Command{Filename: slug, Description: "", Body: "# " + slug + "\n"}
+	if err := SaveCommand(workspace, cmd); err != nil {
+		return nil, err
+	}
+	return cmd, nil
+}
+
 // RenderSkill serializes a skill to its on-disk format (frontmatter + body).
 func RenderSkill(s *Skill) (string, error) {
 	return renderFile(s, s.Body)

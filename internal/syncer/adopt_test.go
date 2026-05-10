@@ -3,6 +3,7 @@ package syncer_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/noah-hrbth/agentsync/internal/syncer"
@@ -45,6 +46,63 @@ func TestAdoptRulesFromClaude(t *testing.T) {
 	}
 	if string(saved) != content {
 		t.Errorf("canonical rules: got %q, want %q", string(saved), content)
+	}
+}
+
+func TestAdoptVibeAgentsMDProject(t *testing.T) {
+	ws := buildAdoptWorkspace(t)
+	content := "# Vibe edited rules\n"
+	if err := os.WriteFile(filepath.Join(ws, "AGENTS.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := syncer.AdoptExternal(ws, "AGENTS.md"); err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+	saved, _ := os.ReadFile(filepath.Join(ws, ".agentsync", "AGENTS.md"))
+	if string(saved) != content {
+		t.Errorf("canonical rules: got %q, want %q", string(saved), content)
+	}
+}
+
+func TestAdoptVibeAgentsMDUser(t *testing.T) {
+	ws := buildAdoptWorkspace(t)
+	if err := os.MkdirAll(filepath.Join(ws, ".vibe"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "# Vibe user-scope rules\n"
+	if err := os.WriteFile(filepath.Join(ws, ".vibe", "AGENTS.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := syncer.AdoptExternal(ws, ".vibe/AGENTS.md"); err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+	saved, _ := os.ReadFile(filepath.Join(ws, ".agentsync", "AGENTS.md"))
+	if string(saved) != content {
+		t.Errorf("canonical rules: got %q, want %q", string(saved), content)
+	}
+}
+
+func TestAdoptVibeSkill(t *testing.T) {
+	ws := buildAdoptWorkspace(t)
+	if err := os.MkdirAll(filepath.Join(ws, ".vibe", "skills", "foo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	skillContent := "---\nname: foo\ndescription: Probe skill\nallowed-tools: [read_file, grep]\n---\nSkill body.\n"
+	if err := os.WriteFile(filepath.Join(ws, ".vibe", "skills", "foo", "SKILL.md"), []byte(skillContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := syncer.AdoptExternal(ws, ".vibe/skills/foo/SKILL.md"); err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+	saved, err := os.ReadFile(filepath.Join(ws, ".agentsync", "skills", "foo", "SKILL.md"))
+	if err != nil {
+		t.Fatalf("read canonical skill: %v", err)
+	}
+	if len(saved) == 0 {
+		t.Error("canonical skill is empty")
+	}
+	if !strings.Contains(string(saved), "Skill body.") {
+		t.Errorf("canonical skill body missing: %s", string(saved))
 	}
 }
 

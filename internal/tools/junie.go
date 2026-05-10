@@ -31,8 +31,18 @@ func (a *junieAdapter) SupportsScope(_ Scope) Compatibility {
 
 func (a *junieAdapter) Alias(_ Concept) string { return "" }
 
-func (a *junieAdapter) Notice() string {
-	return "reads AGENTS.md from workspace root (project-only — rules and AGENTS.md are not synced at user scope); skills/agents/commands are honoured at user scope under ~/.junie/"
+func (a *junieAdapter) ConceptInfo(concept Concept) string {
+	switch concept {
+	case ConceptRules:
+		return "Root memory at AGENTS.md (project root). Project scope only — rules and AGENTS.md are not synced at user scope. Per-file rules append to AGENTS.md."
+	case ConceptSkills:
+		return "Skills at .junie/skills/<dir>/SKILL.md (project) or ~/.junie/skills/ (user)."
+	case ConceptAgents:
+		return "Subagents at .junie/agents/<name>.md (project) or ~/.junie/agents/ (user)."
+	case ConceptCommands:
+		return "Commands at .junie/commands/<name>.md (project) or ~/.junie/commands/ (user)."
+	}
+	return ""
 }
 
 func (a *junieAdapter) Render(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {

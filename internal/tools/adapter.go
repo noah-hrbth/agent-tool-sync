@@ -81,10 +81,11 @@ type Adapter interface {
 	// differs from the canonical name. Returns an empty string when no alias applies.
 	Alias(concept Concept) string
 
-	// Notice returns an optional informational note about this tool to display in the
-	// TUI tools screen (e.g. a non-obvious path split). Returns an empty string when
-	// there is nothing noteworthy.
-	Notice() string
+	// ConceptInfo returns a short, concept-specific description of where this tool
+	// reads/writes files for the given concept and any noteworthy mapping behavior.
+	// Returns "" when there is nothing extra worth surfacing beyond the badge state.
+	// Unsupported concepts may return "" — callers fall back to Compatibility.Reason.
+	ConceptInfo(concept Concept) string
 }
 
 // detectGlobalDir reports installation when ~/.<name> exists.

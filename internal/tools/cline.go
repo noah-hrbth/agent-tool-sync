@@ -35,8 +35,18 @@ func (a *clineAdapter) SupportsScope(_ Scope) Compatibility {
 
 func (a *clineAdapter) Alias(_ Concept) string { return "" }
 
-func (a *clineAdapter) Notice() string {
-	return "rules: .clinerules/<name>.md (or AGENTS.md at root); skills: .cline/skills/ (project AND user — Cline reads skills from ~/.cline/skills/); workflows: .clinerules/workflows/; user-scope rules and workflows live under ~/Documents/Cline/"
+func (a *clineAdapter) ConceptInfo(concept Concept) string {
+	switch concept {
+	case ConceptRules:
+		return "Root memory at AGENTS.md (project root). Per-file rules at .clinerules/<name>.md (project) or ~/Documents/Cline/Rules/<name>.md (user)."
+	case ConceptSkills:
+		return "Skills at .cline/skills/<dir>/SKILL.md (project) or ~/.cline/skills/ (user) — Cline does NOT read user skills from Documents/Cline/."
+	case ConceptAgents:
+		return "Cline has no file-defined sub-agents."
+	case ConceptCommands:
+		return "Workflows (= slash commands) at .clinerules/workflows/<name>.md (project) or ~/Documents/Cline/Workflows/<name>.md (user)."
+	}
+	return ""
 }
 
 func (a *clineAdapter) Render(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
