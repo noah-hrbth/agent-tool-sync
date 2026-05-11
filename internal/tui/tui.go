@@ -16,6 +16,7 @@ import (
 
 	"github.com/noah-hrbth/agentsync/internal/canonical"
 	"github.com/noah-hrbth/agentsync/internal/config"
+	"github.com/noah-hrbth/agentsync/internal/gitignore"
 	"github.com/noah-hrbth/agentsync/internal/syncer"
 	"github.com/noah-hrbth/agentsync/internal/tools"
 )
@@ -180,6 +181,9 @@ type model struct {
 	divChoices map[string]divChoice
 	divIdx     int
 	showDiv    bool
+
+	// first-sync gitignore prompt modal
+	showGitignorePrompt bool
 
 	// status from last syncer.Status() call
 	statusMap map[string]syncer.FileStatus
@@ -569,7 +573,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// trailing viewport.Update forwarder below would otherwise scroll the
 		// viewport behind the modal on every wheel tick (viewport.Update reacts
 		// to MouseMsg without bounds-checking X/Y).
-		if m.editing || m.inputting || m.confirmingDelete || m.showDiv || m.showToolInfo {
+		if m.editing || m.inputting || m.confirmingDelete || m.showDiv || m.showToolInfo || m.showGitignorePrompt {
 			return m, nil
 		}
 		return m.handleMouse(msg)
@@ -598,6 +602,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// When tool info modal is open
 	if m.showToolInfo {
 		return m.updateToolInfo(msg)
+	}
+
+	// When first-sync gitignore prompt is open
+	if m.showGitignorePrompt {
+		return m.updateGitignorePrompt(msg)
 	}
 
 	switch msg := msg.(type) {
@@ -729,6 +738,46 @@ func (m model) updateToolInfo(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc", "enter", "q":
 			m.showToolInfo = false
 		}
+	}
+	return m, nil
+}
+
+// updateGitignorePrompt routes the first-sync gitignore modal: 'a' applies, 's'
+// skips, 'esc' dismisses without persisting (modal re-appears on next sync).
+// Apply/Skip both close the modal, persist config, and dispatch the sync.
+func (m model) updateGitignorePrompt(msg tea.Msg) (tea.Model, tea.Cmd) {
+	km, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+	switch km.String() {
+	case "esc":
+		m.showGitignorePrompt = false
+		return m, nil
+	case "a", "A":
+		if err := gitignore.Update(m.workspace, gitignore.Compute(m.adapters)); err != nil {
+			m.err = err
+			m.showGitignorePrompt = false
+			return m, nil
+		}
+		m.config.Gitignore = config.GitignoreConfig{Manage: true, Prompted: true}
+		if err := config.Save(m.workspace, m.config); err != nil {
+			m.err = err
+		}
+		m.showGitignorePrompt = false
+		return m, runSyncCmd(m.workspace, m.canonical, m.adapters, m.config, m.scope, nil)
+	case "s", "S":
+		if err := gitignore.Remove(m.workspace); err != nil {
+			m.err = err
+			m.showGitignorePrompt = false
+			return m, nil
+		}
+		m.config.Gitignore = config.GitignoreConfig{Manage: false, Prompted: true}
+		if err := config.Save(m.workspace, m.config); err != nil {
+			m.err = err
+		}
+		m.showGitignorePrompt = false
+		return m, runSyncCmd(m.workspace, m.canonical, m.adapters, m.config, m.scope, nil)
 	}
 	return m, nil
 }
@@ -1514,6 +1563,17 @@ func (m model) startSync() (model, tea.Cmd) {
 		return m, nil
 	}
 
+	if m.scope == tools.ScopeProject && !m.config.Gitignore.Prompted {
+		m.showGitignorePrompt = true
+		return m, nil
+	}
+
+	if m.scope == tools.ScopeProject && m.config.Gitignore.Manage {
+		if err := gitignore.Update(m.workspace, gitignore.Compute(m.adapters)); err != nil {
+			m.syncLines = append(m.syncLines, fmt.Sprintf("  ✗ gitignore: %v", err))
+		}
+	}
+
 	return m, runSyncCmd(m.workspace, m.canonical, m.adapters, m.config, m.scope, nil)
 }
 
@@ -1733,6 +1793,9 @@ func (m model) View() string {
 	if m.showToolInfo {
 		view = m.overlayToolInfo(view)
 	}
+	if m.showGitignorePrompt {
+		view = m.overlayGitignorePrompt(view)
+	}
 	if m.err != nil {
 		view = lipgloss.JoinVertical(lipgloss.Left, view,
 			lipgloss.NewStyle().Foreground(colorDanger).Render(fmt.Sprintf("Error: %v", m.err)))
@@ -1803,6 +1866,11 @@ func (m model) renderFooter() string {
 			[]keyHint{{"a", "adopt"}, {"o", "overwrite"}, {"d", "defer"}},
 			[]keyHint{{"enter", "apply"}},
 			[]keyHint{{"esc", "cancel"}},
+		)
+	case m.showGitignorePrompt:
+		keys = joinKeyGroups(
+			[]keyHint{{"a", "apply"}, {"s", "skip"}},
+			[]keyHint{{"esc", "dismiss"}},
 		)
 	case m.screen == screenFiles:
 		canCreate := len(m.files) > 0 && m.files[m.fileIdx].kind != kindAgentsMD
@@ -2096,14 +2164,45 @@ func (m model) viewTools() string {
 
 func (m model) viewSync() string {
 	header := styleTitle.Render("Sync")
+	bannerLines := 0
+	if banner := m.renderGitignoreBanner(); banner != "" {
+		header += "\n\n" + banner
+		bannerLines = 2
+	}
 	if !m.syncDone && len(m.syncLines) == 0 {
 		header += "\n\nPress [s] to sync canonical → all enabled tool folders."
 	}
 	m.logView.Width = m.w - 7
-	m.logView.Height = m.h - 9
+	m.logView.Height = m.h - 9 - bannerLines
 	m.logView.SetContent(strings.Join(m.syncLines, "\n"))
 	content := header + "\n\n" + m.logView.View()
 	return stylePanelBorderInset.Width(m.w - 5).Height(m.h - 4).Render(content)
+}
+
+// renderGitignoreBanner returns the muted one-line gitignore status banner
+// shown above the sync log. Returns "" at user scope (gitignore is never
+// touched there).
+func (m model) renderGitignoreBanner() string {
+	if m.scope != tools.ScopeProject {
+		return ""
+	}
+	mute := lipgloss.NewStyle().Foreground(colorMuted)
+	if !m.config.Gitignore.Prompted {
+		return mute.Render(".gitignore management: not configured — choose on first sync")
+	}
+	if !m.config.Gitignore.Manage {
+		return mute.Render(".gitignore management: off — edit config.yaml to re-enable")
+	}
+	entries := gitignore.Compute(m.adapters)
+	preview := entries
+	if len(preview) > 4 {
+		preview = preview[:4]
+	}
+	suffix := ""
+	if len(entries) > len(preview) {
+		suffix = fmt.Sprintf(", +%d more", len(entries)-len(preview))
+	}
+	return mute.Render(fmt.Sprintf("agentsync manages .gitignore for %d entries (%s%s)", len(entries), strings.Join(preview, ", "), suffix))
 }
 
 func (m model) overlayDivModal(base string) string {
@@ -2284,6 +2383,37 @@ func (m model) overlayToolInfo(base string) string {
 			lines = append(lines, "")
 		}
 	}
+
+	modal := styleModalBorder.Width(width).Render(strings.Join(lines, "\n"))
+	return placeOverlay(base, modal, m.w, m.h)
+}
+
+// overlayGitignorePrompt renders the first-sync modal asking whether agentsync
+// should manage a .gitignore block for derived tool dirs/files.
+func (m model) overlayGitignorePrompt(base string) string {
+	width := m.w * 2 / 3
+	if width < 56 {
+		width = 56
+	}
+	if width > m.w-4 {
+		width = m.w - 4
+	}
+
+	entries := gitignore.Compute(m.adapters)
+	mute := lipgloss.NewStyle().Foreground(colorMuted)
+
+	var lines []string
+	lines = append(lines, styleInputLabel.Render("Manage .gitignore?"))
+	lines = append(lines, mute.Render(fmt.Sprintf("agentsync writes %d derived files/dirs at the workspace root.", len(entries))))
+	lines = append(lines, "")
+	lines = append(lines, "Apply  — write/refresh a managed block (creates .gitignore if missing).")
+	lines = append(lines, "Skip   — remove any existing managed block and don't manage going forward.")
+	lines = append(lines, "")
+	lines = append(lines, mute.Render("Entries:"))
+	for _, e := range entries {
+		lines = append(lines, "  "+e)
+	}
+	lines = append(lines, "", styleFooter.Render("a apply  •  s skip  •  esc dismiss"))
 
 	modal := styleModalBorder.Width(width).Render(strings.Join(lines, "\n"))
 	return placeOverlay(base, modal, m.w, m.h)

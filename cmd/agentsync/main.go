@@ -171,6 +171,16 @@ func runSync(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("unresolved divergences")
 	}
 
+	changed, err := applyGitignoreFlowCLI(ws, cfg, adapters, scope, cmd.InOrStdin(), cmd.OutOrStdout(), isStdinTty())
+	if err != nil {
+		return fmt.Errorf("gitignore: %w", err)
+	}
+	if changed {
+		if err := config.Save(ws, cfg); err != nil {
+			return fmt.Errorf("save config: %w", err)
+		}
+	}
+
 	result, err := syncer.RunSync(ws, c, adapters, cfg, scope, syncer.SyncOptions{})
 	if err != nil {
 		return err

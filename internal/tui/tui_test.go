@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -43,6 +44,20 @@ func writeAgentsMD(t *testing.T, ws string) {
 	if err := os.WriteFile(filepath.Join(ws, ".agentsync", "AGENTS.md"), []byte("# Rules\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// newTestModelScoped constructs an initialModel at the given scope and sizes
+// the window to 120x40. Used by sync-screen tests that need to flip scope.
+func newTestModelScoped(t *testing.T, ws string, scope tools.Scope) model {
+	t.Helper()
+	c, err := canonical.Load(ws)
+	if err != nil {
+		t.Fatalf("load canonical: %v", err)
+	}
+	cfg := config.Default(tools.Names())
+	var m tea.Model = initialModel(ws, scope, c, cfg, tools.All())
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	return m.(model)
 }
 
 func TestRuleAppendNotice(t *testing.T) {
@@ -589,5 +604,300 @@ func TestMouseIgnoredWhenEditing(t *testing.T) {
 	}
 	if mm.fileList.YOffset != 0 {
 		t.Errorf("wheel during editing scrolled fileList: YOffset=%d, want 0", mm.fileList.YOffset)
+	}
+}
+
+// ---- gitignore banner ----
+
+func TestSyncBannerShowsManagingSummaryWhenManageTrue(t *testing.T) {
+	ws := t.TempDir()
+	writeAgentsMD(t, ws)
+	m := newTestModel(t, ws)
+	m.config.Gitignore = config.GitignoreConfig{Manage: true, Prompted: true}
+	out := m.viewSync()
+	if !strings.Contains(out, "manages") {
+		t.Errorf("expected banner to mention managing, got %q", out)
+	}
+	if !strings.Contains(out, ".claude/") {
+		t.Errorf("expected banner to list at least .claude/, got %q", out)
+	}
+}
+
+func TestSyncBannerShowsOffWhenPromptedAndManageFalse(t *testing.T) {
+	ws := t.TempDir()
+	writeAgentsMD(t, ws)
+	m := newTestModel(t, ws)
+	m.config.Gitignore = config.GitignoreConfig{Manage: false, Prompted: true}
+	out := m.viewSync()
+	if !strings.Contains(out, "off") {
+		t.Errorf("expected banner to say off, got %q", out)
+	}
+}
+
+func TestSyncBannerShowsNotConfiguredWhenNotPrompted(t *testing.T) {
+	ws := t.TempDir()
+	writeAgentsMD(t, ws)
+	m := newTestModel(t, ws)
+	out := m.viewSync()
+	if !strings.Contains(out, "not configured") {
+		t.Errorf("expected banner to say not configured, got %q", out)
+	}
+}
+
+func TestSyncBannerHiddenAtUserScope(t *testing.T) {
+	ws := t.TempDir()
+	writeAgentsMD(t, ws)
+	m := newTestModelScoped(t, ws, tools.ScopeUser)
+	out := m.viewSync()
+	for _, marker := range []string{"manages", "not configured", "off — edit"} {
+		if strings.Contains(out, marker) {
+			t.Errorf("user scope should not show gitignore banner (%q found in %q)", marker, out)
+		}
+	}
+}
+
+// ---- gitignore first-sync modal ----
+
+// pressKey sends a single rune keypress to the model and returns the updated
+// model + any Cmd produced. Strings like "esc" and "enter" map to the matching
+// key types.
+func pressKey(t *testing.T, m tea.Model, key string) (tea.Model, tea.Cmd) {
+	t.Helper()
+	switch key {
+	case "esc":
+		return m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	case "enter":
+		return m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	}
+	return m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+}
+
+func TestGitignoreModalShowsOnFirstSyncProjectScope(t *testing.T) {
+	ws := t.TempDir()
+	writeAgentsMD(t, ws)
+	m := newTestModel(t, ws)
+	m.screen = screenSync
+	var tm tea.Model = m
+	tm, cmd := pressKey(t, tm, "s")
+	if !tm.(model).showGitignorePrompt {
+		t.Errorf("expected showGitignorePrompt to be true after first sync")
+	}
+	if cmd != nil {
+		t.Errorf("sync should not dispatch while modal is open (got non-nil Cmd)")
+	}
+}
+
+func TestGitignoreModalNotShownWhenPrompted(t *testing.T) {
+	ws := t.TempDir()
+	writeAgentsMD(t, ws)
+	m := newTestModel(t, ws)
+	m.config.Gitignore = config.GitignoreConfig{Manage: true, Prompted: true}
+	m.screen = screenSync
+	var tm tea.Model = m
+	tm, cmd := pressKey(t, tm, "s")
+	if tm.(model).showGitignorePrompt {
+		t.Errorf("modal must not appear when Prompted=true")
+	}
+	if cmd == nil {
+		t.Errorf("expected sync to dispatch (non-nil Cmd) when Prompted=true")
+	}
+}
+
+func TestGitignoreModalApplyWritesBlockPersistsConfigAndContinuesSync(t *testing.T) {
+	ws := t.TempDir()
+	writeAgentsMD(t, ws)
+	m := newTestModel(t, ws)
+	m.screen = screenSync
+	var tm tea.Model = m
+	tm, _ = pressKey(t, tm, "s")
+	if !tm.(model).showGitignorePrompt {
+		t.Fatalf("modal should be open")
+	}
+	tm, cmd := pressKey(t, tm, "a")
+	mm := tm.(model)
+	if mm.showGitignorePrompt {
+		t.Errorf("modal should close after apply")
+	}
+	if !mm.config.Gitignore.Manage || !mm.config.Gitignore.Prompted {
+		t.Errorf("expected Manage=true Prompted=true, got %+v", mm.config.Gitignore)
+	}
+	got, err := os.ReadFile(filepath.Join(ws, ".gitignore"))
+	if err != nil {
+		t.Fatalf("expected .gitignore: %v", err)
+	}
+	if !strings.Contains(string(got), "# BEGIN agentsync managed") {
+		t.Errorf("expected managed block, got %q", string(got))
+	}
+	// Re-load config from disk to verify persistence.
+	loaded, err := config.Load(ws, tools.Names())
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	if !loaded.Gitignore.Manage || !loaded.Gitignore.Prompted {
+		t.Errorf("config not persisted: %+v", loaded.Gitignore)
+	}
+	if cmd == nil {
+		t.Errorf("expected sync to dispatch after apply (got nil Cmd)")
+	}
+}
+
+func TestGitignoreModalSkipRemovesBlockPersistsConfigAndContinuesSync(t *testing.T) {
+	ws := t.TempDir()
+	writeAgentsMD(t, ws)
+	// Pre-seed a managed block to verify Skip removes it.
+	if err := os.WriteFile(filepath.Join(ws, ".gitignore"), []byte("# BEGIN agentsync managed\n.old/\n# END agentsync managed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := newTestModel(t, ws)
+	m.screen = screenSync
+	var tm tea.Model = m
+	tm, _ = pressKey(t, tm, "s")
+	tm, cmd := pressKey(t, tm, "s") // 's' inside modal = skip
+	mm := tm.(model)
+	if mm.showGitignorePrompt {
+		t.Errorf("modal should close after skip")
+	}
+	if mm.config.Gitignore.Manage {
+		t.Errorf("expected Manage=false after skip")
+	}
+	if !mm.config.Gitignore.Prompted {
+		t.Errorf("expected Prompted=true after skip")
+	}
+	got, err := os.ReadFile(filepath.Join(ws, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if strings.Contains(string(got), "# BEGIN agentsync managed") {
+		t.Errorf("block should have been removed, got %q", string(got))
+	}
+	loaded, err := config.Load(ws, tools.Names())
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if loaded.Gitignore.Manage || !loaded.Gitignore.Prompted {
+		t.Errorf("config not persisted: %+v", loaded.Gitignore)
+	}
+	if cmd == nil {
+		t.Errorf("expected sync to dispatch after skip (got nil Cmd)")
+	}
+}
+
+func TestGitignoreModalEscDismissesWithoutPersistOrSync(t *testing.T) {
+	ws := t.TempDir()
+	writeAgentsMD(t, ws)
+	m := newTestModel(t, ws)
+	m.screen = screenSync
+	var tm tea.Model = m
+	tm, _ = pressKey(t, tm, "s")
+	tm, cmd := pressKey(t, tm, "esc")
+	mm := tm.(model)
+	if mm.showGitignorePrompt {
+		t.Errorf("modal should close after esc")
+	}
+	if mm.config.Gitignore.Prompted {
+		t.Errorf("esc must not flip Prompted")
+	}
+	if cmd != nil {
+		t.Errorf("esc must not dispatch sync (got non-nil Cmd)")
+	}
+	// And modal must re-open on next 's'.
+	tm, _ = pressKey(t, tm, "s")
+	if !tm.(model).showGitignorePrompt {
+		t.Errorf("modal should re-open on next 's' after esc")
+	}
+}
+
+func TestGitignoreModalNeverShowsAtUserScope(t *testing.T) {
+	ws := t.TempDir()
+	writeAgentsMD(t, ws)
+	m := newTestModelScoped(t, ws, tools.ScopeUser)
+	m.screen = screenSync
+	var tm tea.Model = m
+	tm, cmd := pressKey(t, tm, "s")
+	if tm.(model).showGitignorePrompt {
+		t.Errorf("modal must not appear at user scope")
+	}
+	if cmd == nil {
+		t.Errorf("sync should dispatch at user scope (no prompt needed)")
+	}
+}
+
+func TestGitignoreModalBlocksMouseWhileOpen(t *testing.T) {
+	ws := t.TempDir()
+	writeAgentsMD(t, ws)
+	m := newTestModel(t, ws)
+	m.screen = screenSync
+	var tm tea.Model = m
+	tm, _ = pressKey(t, tm, "s")
+	if !tm.(model).showGitignorePrompt {
+		t.Fatalf("modal should be open")
+	}
+	// Mouse events must be dropped while the modal is up so background viewports
+	// don't scroll behind it.
+	before := tm.(model)
+	tm, _ = tm.Update(mouseMsg(10, 10, tea.MouseButtonWheelDown, tea.MouseActionPress))
+	after := tm.(model)
+	if before.logView.YOffset != after.logView.YOffset {
+		t.Errorf("logView scrolled while modal open: before=%d after=%d", before.logView.YOffset, after.logView.YOffset)
+	}
+}
+
+func TestGitignoreModalViewRendersWithoutPanic(t *testing.T) {
+	ws := t.TempDir()
+	writeAgentsMD(t, ws)
+	m := newTestModel(t, ws)
+	m.screen = screenSync
+	var tm tea.Model = m
+	tm, _ = pressKey(t, tm, "s")
+	_ = tm.(model).View()
+}
+
+func TestGitignoreModalDeferredBehindDivergence(t *testing.T) {
+	ws := t.TempDir()
+	writeAgentsMD(t, ws)
+	// Seed a snapshot referencing CLAUDE.md with a known hash, then write a
+	// CLAUDE.md whose disk content hashes to something else → Status reports
+	// it as Divergent.
+	if err := os.MkdirAll(filepath.Join(ws, ".agentsync", ".state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	snap := `{"files":{"CLAUDE.md":"0000000000000000000000000000000000000000000000000000000000000000"}}`
+	if err := os.WriteFile(filepath.Join(ws, ".agentsync", ".state", "snapshot.json"), []byte(snap), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws, "CLAUDE.md"), []byte("externally edited content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := newTestModel(t, ws)
+	m.screen = screenSync
+	var tm tea.Model = m
+	tm, _ = pressKey(t, tm, "s")
+	mm := tm.(model)
+	if !mm.showDiv {
+		t.Errorf("expected divergence modal to be shown first")
+	}
+	if mm.showGitignorePrompt {
+		t.Errorf("gitignore prompt must defer behind divergence modal")
+	}
+}
+
+func TestGitignoreRefreshesOnSubsequentSyncWhenManageTrue(t *testing.T) {
+	ws := t.TempDir()
+	writeAgentsMD(t, ws)
+	// Pre-seed an empty .gitignore so the silent refresh has somewhere to land.
+	if err := os.WriteFile(filepath.Join(ws, ".gitignore"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := newTestModel(t, ws)
+	m.config.Gitignore = config.GitignoreConfig{Manage: true, Prompted: true}
+	m.screen = screenSync
+	var tm tea.Model = m
+	tm, _ = pressKey(t, tm, "s")
+	got, err := os.ReadFile(filepath.Join(ws, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !strings.Contains(string(got), "# BEGIN agentsync managed") {
+		t.Errorf("expected silent refresh to write managed block, got %q", string(got))
 	}
 }
