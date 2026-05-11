@@ -1822,6 +1822,7 @@ func (m model) renderFooter() string {
 		keys = joinKeyGroups(
 			actions,
 			[]keyHint{{"s", "sync"}},
+			[]keyHint{{"ctrl+u/d", "scroll"}},
 			[]keyHint{{"q", "quit"}},
 		)
 	case m.showToolInfo:
@@ -1832,11 +1833,13 @@ func (m model) renderFooter() string {
 		keys = joinKeyGroups(
 			[]keyHint{{"space", "toggle"}, {"enter", "info"}},
 			[]keyHint{{"s", "sync"}},
+			[]keyHint{{"ctrl+u/d", "scroll"}},
 			[]keyHint{{"q", "quit"}},
 		)
 	case m.screen == screenSync:
 		keys = joinKeyGroups(
 			[]keyHint{{"s", "sync"}},
+			[]keyHint{{"ctrl+u/d", "scroll"}},
 			[]keyHint{{"q", "quit"}},
 		)
 	}
