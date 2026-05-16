@@ -13,39 +13,31 @@ import (
 	"github.com/noah-hrbth/agentsync/internal/canonical"
 )
 
-type openCodeAdapter struct{}
-
-func (a *openCodeAdapter) Name() string { return "OpenCode" }
-
-func (a *openCodeAdapter) Detect(_ string) Installation {
-	if inst := detectConfigDir("opencode"); inst.Found {
-		return inst
-	}
-	return detectGlobalDir("opencode")
-}
-
-func (a *openCodeAdapter) Supports(concept Concept) Compatibility {
-	return Compatibility{Supported: true}
-}
-
-func (a *openCodeAdapter) SupportsScope(_ Scope) Compatibility {
-	return Compatibility{Supported: true}
-}
-
-func (a *openCodeAdapter) Alias(_ Concept) string { return "" }
-
-func (a *openCodeAdapter) ConceptInfo(concept Concept) string {
-	switch concept {
-	case ConceptRules:
-		return "Root memory at AGENTS.md (project) or ~/.config/opencode/AGENTS.md (user). Per-file rules append to AGENTS.md — OpenCode has no per-rule files."
-	case ConceptSkills:
-		return "Skills at .opencode/skills/<dir>/SKILL.md (project) or ~/.config/opencode/skills/ (user)."
-	case ConceptAgents:
-		return "Subagents at .opencode/agents/<name>.md."
-	case ConceptCommands:
-		return "Commands at .opencode/commands/<name>.md."
-	}
-	return ""
+var openCodeMeta = ToolMeta{
+	Key:  "opencode",
+	Name: "OpenCode",
+	Detect: func(ws string) Installation {
+		if inst := detectConfigDir("opencode")(ws); inst.Found {
+			return inst
+		}
+		return detectGlobalDir("opencode")(ws)
+	},
+	Concepts: map[Concept]Compatibility{
+		ConceptRules:    {Supported: true},
+		ConceptSkills:   {Supported: true},
+		ConceptAgents:   {Supported: true},
+		ConceptCommands: {Supported: true},
+	},
+	Scopes: map[Scope]Compatibility{
+		ScopeProject: {Supported: true},
+		ScopeUser:    {Supported: true},
+	},
+	ConceptInfo: map[Concept]string{
+		ConceptRules:    "Root memory at AGENTS.md (project) or ~/.config/opencode/AGENTS.md (user). Per-file rules append to AGENTS.md — OpenCode has no per-rule files.",
+		ConceptSkills:   "Skills at .opencode/skills/<dir>/SKILL.md (project) or ~/.config/opencode/skills/ (user).",
+		ConceptAgents:   "Subagents at .opencode/agents/<name>.md.",
+		ConceptCommands: "Commands at .opencode/commands/<name>.md.",
+	},
 }
 
 // openCodeBase returns the path prefix relative to the scope's base directory.
@@ -58,7 +50,7 @@ func openCodeBase(scope Scope) string {
 	return ".opencode"
 }
 
-func (a *openCodeAdapter) Render(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
+func renderOpenCode(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	base := openCodeBase(scope)
 	rootContent := buildRootMemoryContent(c.AgentsMD, c.Rules)
 	// OpenCode reads AGENTS.md from the workspace root (and parent dirs) at project

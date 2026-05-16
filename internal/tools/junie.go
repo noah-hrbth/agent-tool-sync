@@ -6,46 +6,31 @@ import (
 	"github.com/noah-hrbth/agentsync/internal/canonical"
 )
 
-type junieAdapter struct{}
-
-func (a *junieAdapter) Name() string { return "JetBrains Junie" }
-
-func (a *junieAdapter) Detect(_ string) Installation {
-	return detectGlobalDir("junie")
-}
-
-func (a *junieAdapter) Supports(concept Concept) Compatibility {
-	switch concept {
-	case ConceptRules, ConceptSkills, ConceptAgents, ConceptCommands:
-		return Compatibility{Supported: true}
-	default:
-		return Compatibility{Supported: false}
-	}
-}
-
-func (a *junieAdapter) SupportsScope(_ Scope) Compatibility {
+var junieMeta = ToolMeta{
+	Key:    "junie",
+	Name:   "JetBrains Junie",
+	Detect: detectGlobalDir("junie"),
+	Concepts: map[Concept]Compatibility{
+		ConceptRules:    {Supported: true},
+		ConceptSkills:   {Supported: true},
+		ConceptAgents:   {Supported: true},
+		ConceptCommands: {Supported: true},
+	},
 	// Junie itself supports a user-scope tree under ~/.junie/ for skills/agents/commands.
 	// Root memory (AGENTS.md / guidelines) is project-only — Render skips it at user scope.
-	return Compatibility{Supported: true}
+	Scopes: map[Scope]Compatibility{
+		ScopeProject: {Supported: true},
+		ScopeUser:    {Supported: true},
+	},
+	ConceptInfo: map[Concept]string{
+		ConceptRules:    "Root memory at AGENTS.md (project root). Project scope only — rules and AGENTS.md are not synced at user scope. Per-file rules append to AGENTS.md.",
+		ConceptSkills:   "Skills at .junie/skills/<dir>/SKILL.md (project) or ~/.junie/skills/ (user).",
+		ConceptAgents:   "Subagents at .junie/agents/<name>.md (project) or ~/.junie/agents/ (user).",
+		ConceptCommands: "Commands at .junie/commands/<name>.md (project) or ~/.junie/commands/ (user).",
+	},
 }
 
-func (a *junieAdapter) Alias(_ Concept) string { return "" }
-
-func (a *junieAdapter) ConceptInfo(concept Concept) string {
-	switch concept {
-	case ConceptRules:
-		return "Root memory at AGENTS.md (project root). Project scope only — rules and AGENTS.md are not synced at user scope. Per-file rules append to AGENTS.md."
-	case ConceptSkills:
-		return "Skills at .junie/skills/<dir>/SKILL.md (project) or ~/.junie/skills/ (user)."
-	case ConceptAgents:
-		return "Subagents at .junie/agents/<name>.md (project) or ~/.junie/agents/ (user)."
-	case ConceptCommands:
-		return "Commands at .junie/commands/<name>.md (project) or ~/.junie/commands/ (user)."
-	}
-	return ""
-}
-
-func (a *junieAdapter) Render(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
+func renderJunie(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	var files []FileWrite
 
 	// Root memory: project scope only. Junie's lookup chain is .junie/AGENTS.md →

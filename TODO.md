@@ -6,7 +6,7 @@
 - [ ] Continue.dev
 - [x] Cline
 - [ ] Roo Code
-- [ ] GitHub Copilot
+- [x] GitHub Copilot
 - [x] JetBrains Junie
 - [ ] Crush
 - [ ] Goose

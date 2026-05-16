@@ -6,50 +6,33 @@ import (
 	"github.com/noah-hrbth/agentsync/internal/canonical"
 )
 
-type clineAdapter struct{}
-
-func (a *clineAdapter) Name() string { return "Cline" }
-
-// Detect reports installation via ~/.cline/, the root Cline uses for skills and
-// runtime state. Cline's other user-scope tree (~/Documents/Cline/ for rules and
-// workflows) is not used for detection because rule/workflow directories may be
-// absent on a fresh install while ~/.cline/ is created on first run.
-func (a *clineAdapter) Detect(_ string) Installation {
-	return detectGlobalDir("cline")
+var clineMeta = ToolMeta{
+	Key:  "cline",
+	Name: "Cline",
+	// Detect reports installation via ~/.cline/, the root Cline uses for skills and
+	// runtime state. Cline's other user-scope tree (~/Documents/Cline/ for rules and
+	// workflows) is not used for detection because rule/workflow directories may be
+	// absent on a fresh install while ~/.cline/ is created on first run.
+	Detect: detectGlobalDir("cline"),
+	Concepts: map[Concept]Compatibility{
+		ConceptRules:    {Supported: true},
+		ConceptSkills:   {Supported: true},
+		ConceptAgents:   {Supported: false, Reason: "Cline has no file-defined sub-agents"},
+		ConceptCommands: {Supported: true},
+	},
+	Scopes: map[Scope]Compatibility{
+		ScopeProject: {Supported: true},
+		ScopeUser:    {Supported: true},
+	},
+	ConceptInfo: map[Concept]string{
+		ConceptRules:    "Root memory at AGENTS.md (project root). Per-file rules at .clinerules/<name>.md (project) or ~/Documents/Cline/Rules/<name>.md (user).",
+		ConceptSkills:   "Skills at .cline/skills/<dir>/SKILL.md (project) or ~/.cline/skills/ (user) — Cline does NOT read user skills from Documents/Cline/.",
+		ConceptAgents:   "Cline has no file-defined sub-agents.",
+		ConceptCommands: "Workflows (= slash commands) at .clinerules/workflows/<name>.md (project) or ~/Documents/Cline/Workflows/<name>.md (user).",
+	},
 }
 
-func (a *clineAdapter) Supports(concept Concept) Compatibility {
-	switch concept {
-	case ConceptRules, ConceptSkills, ConceptCommands:
-		return Compatibility{Supported: true}
-	case ConceptAgents:
-		return Compatibility{Supported: false, Reason: "Cline has no file-defined sub-agents"}
-	default:
-		return Compatibility{Supported: false}
-	}
-}
-
-func (a *clineAdapter) SupportsScope(_ Scope) Compatibility {
-	return Compatibility{Supported: true}
-}
-
-func (a *clineAdapter) Alias(_ Concept) string { return "" }
-
-func (a *clineAdapter) ConceptInfo(concept Concept) string {
-	switch concept {
-	case ConceptRules:
-		return "Root memory at AGENTS.md (project root). Per-file rules at .clinerules/<name>.md (project) or ~/Documents/Cline/Rules/<name>.md (user)."
-	case ConceptSkills:
-		return "Skills at .cline/skills/<dir>/SKILL.md (project) or ~/.cline/skills/ (user) — Cline does NOT read user skills from Documents/Cline/."
-	case ConceptAgents:
-		return "Cline has no file-defined sub-agents."
-	case ConceptCommands:
-		return "Workflows (= slash commands) at .clinerules/workflows/<name>.md (project) or ~/Documents/Cline/Workflows/<name>.md (user)."
-	}
-	return ""
-}
-
-func (a *clineAdapter) Render(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
+func renderCline(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	var files []FileWrite
 
 	// Root memory: project scope only. Cline auto-detects AGENTS.md at the workspace

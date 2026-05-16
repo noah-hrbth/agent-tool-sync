@@ -11,7 +11,7 @@ import (
 func TestAlias(t *testing.T) {
 	tests := []struct {
 		name    string
-		adapter tools.Adapter
+		adapter tools.Tool
 		cases   []struct {
 			concept tools.Concept
 			want    string
@@ -134,12 +134,25 @@ func TestAlias(t *testing.T) {
 				{tools.ConceptCommands, ""},
 			},
 		},
+		{
+			name:    "GitHub Copilot",
+			adapter: tools.All()[9],
+			cases: []struct {
+				concept tools.Concept
+				want    string
+			}{
+				{tools.ConceptRules, ""},
+				{tools.ConceptSkills, ""},
+				{tools.ConceptAgents, ""},
+				{tools.ConceptCommands, ""},
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			for _, tc := range tt.cases {
-				got := tt.adapter.Alias(tc.concept)
+				got := tt.adapter.Meta.Alias(tc.concept)
 				if got != tc.want {
 					t.Errorf("Alias(%q): got %q, want %q", tc.concept, got, tc.want)
 				}
@@ -155,7 +168,7 @@ func TestCursorSupportsAllConcepts(t *testing.T) {
 	for _, concept := range []tools.Concept{
 		tools.ConceptRules, tools.ConceptSkills, tools.ConceptAgents,
 	} {
-		if got := cursor.Supports(concept); !got.Supported {
+		if got := cursor.Meta.Supports(concept); !got.Supported {
 			t.Errorf("Cursor.Supports(%v): want supported=true, got false (%s)", concept, got.Reason)
 		}
 	}
@@ -163,7 +176,7 @@ func TestCursorSupportsAllConcepts(t *testing.T) {
 
 func TestCursorCommandsDeprecated(t *testing.T) {
 	cursor := tools.All()[2]
-	compat := cursor.Supports(tools.ConceptCommands)
+	compat := cursor.Meta.Supports(tools.ConceptCommands)
 	if !compat.Supported {
 		t.Error("Cursor commands should be Supported=true (backward-compat)")
 	}
@@ -180,7 +193,7 @@ func TestCursorCommandsDeprecated(t *testing.T) {
 
 func TestClaudeCommandsDeprecated(t *testing.T) {
 	claude := tools.All()[0]
-	compat := claude.Supports(tools.ConceptCommands)
+	compat := claude.Meta.Supports(tools.ConceptCommands)
 	if !compat.Supported {
 		t.Error("Claude commands should still be Supported=true (backward-compat)")
 	}
@@ -268,7 +281,7 @@ func TestGeminiSupportsAllConcepts(t *testing.T) {
 	for _, concept := range []tools.Concept{
 		tools.ConceptRules, tools.ConceptSkills, tools.ConceptAgents, tools.ConceptCommands,
 	} {
-		compat := gemini.Supports(concept)
+		compat := gemini.Meta.Supports(concept)
 		if !compat.Supported {
 			t.Errorf("Gemini.Supports(%v): want supported=true, got false (%s)", concept, compat.Reason)
 		}
@@ -393,7 +406,7 @@ func TestCodexCommandsDeprecated(t *testing.T) {
 
 	// Skills and agents should be fully supported
 	for _, concept := range []tools.Concept{tools.ConceptSkills, tools.ConceptAgents} {
-		compat := codex.Supports(concept)
+		compat := codex.Meta.Supports(concept)
 		if !compat.Supported {
 			t.Errorf("Codex.Supports(%v): want supported=true", concept)
 		}
@@ -403,7 +416,7 @@ func TestCodexCommandsDeprecated(t *testing.T) {
 	}
 
 	// Commands should be deprecated
-	cmdCompat := codex.Supports(tools.ConceptCommands)
+	cmdCompat := codex.Meta.Supports(tools.ConceptCommands)
 	if !cmdCompat.Supported {
 		t.Error("Codex commands should be Supported=true (backward-compat)")
 	}
@@ -415,21 +428,75 @@ func TestCodexCommandsDeprecated(t *testing.T) {
 	}
 }
 
-func TestZedSupportsMatrix(t *testing.T) {
-	zed := tools.All()[5]
-
-	if compat := zed.Supports(tools.ConceptRules); !compat.Supported {
-		t.Errorf("Zed.Supports(Rules): want supported=true, got false (%s)", compat.Reason)
+func TestSupportMatrix(t *testing.T) {
+	allConcepts := []tools.Concept{
+		tools.ConceptRules, tools.ConceptSkills, tools.ConceptAgents, tools.ConceptCommands,
 	}
+	validConcept := map[tools.Concept]bool{}
+	for _, c := range allConcepts {
+		validConcept[c] = true
+	}
+	allScopes := []tools.Scope{tools.ScopeProject, tools.ScopeUser}
 
-	for _, concept := range []tools.Concept{tools.ConceptSkills, tools.ConceptAgents, tools.ConceptCommands} {
-		compat := zed.Supports(concept)
-		if compat.Supported {
-			t.Errorf("Zed.Supports(%v): want supported=false, got true", concept)
-		}
-		if compat.Reason == "" {
-			t.Errorf("Zed.Supports(%v): expected non-empty Reason for unsupported concept", concept)
-		}
+	for _, tool := range tools.All() {
+		t.Run(tool.Meta.Key, func(t *testing.T) {
+			// 1. required identity + render
+			if tool.Meta.Key == "" {
+				t.Error("Meta.Key must be non-empty")
+			}
+			if tool.Meta.Name == "" {
+				t.Error("Meta.Name must be non-empty")
+			}
+			if tool.Meta.Detect == nil {
+				t.Error("Meta.Detect must be non-nil")
+			}
+			if tool.Render == nil {
+				t.Error("Render must be non-nil")
+			}
+
+			// 2. all four concepts listed explicitly
+			for _, concept := range allConcepts {
+				if _, ok := tool.Meta.Concepts[concept]; !ok {
+					t.Errorf("Meta.Concepts missing concept %q (all four must be listed explicitly)", concept)
+				}
+			}
+
+			// 3. both scopes listed explicitly
+			for _, scope := range allScopes {
+				if _, ok := tool.Meta.Scopes[scope]; !ok {
+					t.Errorf("Meta.Scopes missing scope %q (both scopes must be listed explicitly)", scope)
+				}
+			}
+
+			// 4. concept compat invariants
+			for concept, compat := range tool.Meta.Concepts {
+				if !compat.Supported && compat.Reason == "" {
+					t.Errorf("concept %q: unsupported but Reason is empty", concept)
+				}
+				if compat.Deprecated && compat.Replacement == "" {
+					t.Errorf("concept %q: deprecated but Replacement is empty", concept)
+				}
+			}
+
+			// 5. scope compat invariants
+			for scope, compat := range tool.Meta.Scopes {
+				if !compat.Supported && compat.Reason == "" {
+					t.Errorf("scope %q: unsupported but Reason is empty", scope)
+				}
+			}
+
+			// 6. no orphan keys in Aliases / ConceptInfo
+			for concept := range tool.Meta.Aliases {
+				if !validConcept[concept] {
+					t.Errorf("Meta.Aliases has orphan key %q (not a valid concept)", concept)
+				}
+			}
+			for concept := range tool.Meta.ConceptInfo {
+				if !validConcept[concept] {
+					t.Errorf("Meta.ConceptInfo has orphan key %q (not a valid concept)", concept)
+				}
+			}
+		})
 	}
 }
 
@@ -516,18 +583,19 @@ func TestSupportsScope(t *testing.T) {
 		{"Cline", true},
 		{"JetBrains Junie", true},
 		{"Mistral Vibe", true},
+		{"GitHub Copilot", true},
 	}
-	byName := map[string]tools.Adapter{}
+	byName := map[string]tools.Tool{}
 	for _, a := range tools.All() {
-		byName[a.Name()] = a
+		byName[a.Meta.Name] = a
 	}
 	for _, c := range cases {
 		t.Run(c.toolName, func(t *testing.T) {
 			a := byName[c.toolName]
-			if got := a.SupportsScope(tools.ScopeProject); !got.Supported {
+			if got := a.Meta.SupportsScope(tools.ScopeProject); !got.Supported {
 				t.Errorf("SupportsScope(Project) for %s: want true, got false", c.toolName)
 			}
-			got := a.SupportsScope(tools.ScopeUser)
+			got := a.Meta.SupportsScope(tools.ScopeUser)
 			if got.Supported != c.userSupported {
 				t.Errorf("SupportsScope(User) for %s: want %v, got %v", c.toolName, c.userSupported, got.Supported)
 			}
@@ -611,9 +679,9 @@ func TestUserScopeRendersDifferentPaths(t *testing.T) {
 func TestUserScopeUnsupportedRendersEmpty(t *testing.T) {
 	c := &canonical.Canonical{AgentsMD: "# rules"}
 	for _, name := range []string{"Cursor", "Zed"} {
-		var a tools.Adapter
+		var a tools.Tool
 		for _, candidate := range tools.All() {
-			if candidate.Name() == name {
+			if candidate.Meta.Name == name {
 				a = candidate
 				break
 			}
@@ -637,34 +705,18 @@ func containsPath(writes []tools.FileWrite, path string) bool {
 	return false
 }
 
-func adapterByName(t *testing.T, name string) tools.Adapter {
+func adapterByName(t *testing.T, name string) tools.Tool {
 	t.Helper()
 	for _, a := range tools.All() {
-		if a.Name() == name {
+		if a.Meta.Name == name {
 			return a
 		}
 	}
 	t.Fatalf("adapter %q not registered", name)
-	return nil
+	return tools.Tool{}
 }
 
 // --- Cline ---
-
-func TestClineSupportsMatrix(t *testing.T) {
-	cline := adapterByName(t, "Cline")
-	for _, concept := range []tools.Concept{tools.ConceptRules, tools.ConceptSkills, tools.ConceptCommands} {
-		if got := cline.Supports(concept); !got.Supported {
-			t.Errorf("Cline.Supports(%v): want supported=true, got false (%s)", concept, got.Reason)
-		}
-	}
-	got := cline.Supports(tools.ConceptAgents)
-	if got.Supported {
-		t.Error("Cline.Supports(Agents): want supported=false, got true")
-	}
-	if !strings.Contains(got.Reason, "sub-agents") {
-		t.Errorf("Cline.Supports(Agents) reason should mention sub-agents, got %q", got.Reason)
-	}
-}
 
 func TestClineRendersProjectRules(t *testing.T) {
 	cline := adapterByName(t, "Cline")
@@ -798,19 +850,6 @@ func TestClineRendersWorkflows(t *testing.T) {
 }
 
 // --- JetBrains Junie ---
-
-func TestJunieSupportsMatrix(t *testing.T) {
-	junie := adapterByName(t, "JetBrains Junie")
-	for _, concept := range []tools.Concept{tools.ConceptRules, tools.ConceptSkills, tools.ConceptAgents, tools.ConceptCommands} {
-		got := junie.Supports(concept)
-		if !got.Supported {
-			t.Errorf("Junie.Supports(%v): want supported=true, got false (%s)", concept, got.Reason)
-		}
-		if got.Deprecated {
-			t.Errorf("Junie.Supports(%v): unexpected deprecated=true", concept)
-		}
-	}
-}
 
 func TestJunieRuleAppendsToRootMemory(t *testing.T) {
 	junie := adapterByName(t, "JetBrains Junie")
@@ -969,24 +1008,14 @@ func pathsOf(writes []tools.FileWrite) []string {
 
 func TestVibeRegisteredAtIndex8(t *testing.T) {
 	all := tools.All()
-	if len(all) != 9 {
-		t.Fatalf("tools.All(): want 9 adapters, got %d", len(all))
+	if len(all) != 10 {
+		t.Fatalf("tools.All(): want 10 adapters, got %d", len(all))
 	}
-	if all[8].Name() != "Mistral Vibe" {
-		t.Errorf("tools.All()[8].Name(): want %q, got %q", "Mistral Vibe", all[8].Name())
+	if all[8].Meta.Name != "Mistral Vibe" {
+		t.Errorf("tools.All()[8].Meta.Name: want %q, got %q", "Mistral Vibe", all[8].Meta.Name)
 	}
-}
-
-func TestVibeSupportsMatrix(t *testing.T) {
-	vibe := adapterByName(t, "Mistral Vibe")
-	for _, concept := range []tools.Concept{tools.ConceptRules, tools.ConceptSkills, tools.ConceptAgents} {
-		got := vibe.Supports(concept)
-		if !got.Supported {
-			t.Errorf("Vibe.Supports(%v): want supported=true, got false (%s)", concept, got.Reason)
-		}
-		if got.Deprecated {
-			t.Errorf("Vibe.Supports(%v): want Deprecated=false, got true", concept)
-		}
+	if all[9].Meta.Name != "GitHub Copilot" {
+		t.Errorf("tools.All()[9].Meta.Name: want %q, got %q", "GitHub Copilot", all[9].Meta.Name)
 	}
 }
 
@@ -1224,7 +1253,7 @@ func TestVibeRendersCommands(t *testing.T) {
 
 func TestVibeCommandsDeprecated(t *testing.T) {
 	vibe := adapterByName(t, "Mistral Vibe")
-	compat := vibe.Supports(tools.ConceptCommands)
+	compat := vibe.Meta.Supports(tools.ConceptCommands)
 	if !compat.Supported {
 		t.Error("Vibe commands should be Supported=true (rendered as user-invocable skills)")
 	}

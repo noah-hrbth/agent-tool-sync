@@ -23,9 +23,9 @@ const (
 // FileResult is the status of one adapter output file.
 type FileResult struct {
 	ToolName string
-	Path     string     // workspace-relative
+	Path     string // workspace-relative
 	Status   FileStatus
-	Content  []byte     // content to write (from adapter Render)
+	Content  []byte // content to write (from adapter Render)
 }
 
 // SyncedFile is one written or skipped file with its tool and concept attribution.
@@ -52,7 +52,7 @@ type SyncOptions struct {
 // Status computes the FileResult list for all enabled adapters without writing.
 // This is used by the TUI to check for divergences before syncing.
 // Adapters whose SupportsScope(scope) is false are skipped.
-func Status(workspace string, c *canonical.Canonical, adapters []tools.Adapter, cfg *config.Config, scope tools.Scope) ([]FileResult, error) {
+func Status(workspace string, c *canonical.Canonical, adapters []tools.Tool, cfg *config.Config, scope tools.Scope) ([]FileResult, error) {
 	snap, err := loadSnapshot(workspace)
 	if err != nil {
 		return nil, err
@@ -60,15 +60,15 @@ func Status(workspace string, c *canonical.Canonical, adapters []tools.Adapter, 
 
 	var results []FileResult
 	for _, a := range adapters {
-		if !cfg.IsEnabled(a.Name()) {
+		if !cfg.IsEnabled(a.Meta.Name) {
 			continue
 		}
-		if !a.SupportsScope(scope).Supported {
+		if !a.Meta.SupportsScope(scope).Supported {
 			continue
 		}
 		writes, err := a.Render(c, scope)
 		if err != nil {
-			return nil, fmt.Errorf("render %s: %w", a.Name(), err)
+			return nil, fmt.Errorf("render %s: %w", a.Meta.Name, err)
 		}
 		for _, fw := range writes {
 			diskHash, err := hashFile(filepath.Join(workspace, fw.Path))
@@ -77,7 +77,7 @@ func Status(workspace string, c *canonical.Canonical, adapters []tools.Adapter, 
 			}
 			snapHash, hasSnap := snap.Files[fw.Path]
 			results = append(results, FileResult{
-				ToolName: a.Name(),
+				ToolName: a.Meta.Name,
 				Path:     fw.Path,
 				Status:   fileStatus(diskHash, snapHash, hasSnap),
 				Content:  fw.Content,
@@ -106,7 +106,7 @@ func fileStatus(diskHash, snapHash string, hasSnap bool) FileStatus {
 // Callers should run Status first, resolve divergences, then call RunSync
 // with the deferred paths in opts.Skip.
 // Adapters whose SupportsScope(scope) is false are skipped.
-func RunSync(workspace string, c *canonical.Canonical, adapters []tools.Adapter, cfg *config.Config, scope tools.Scope, opts SyncOptions) (*SyncResult, error) {
+func RunSync(workspace string, c *canonical.Canonical, adapters []tools.Tool, cfg *config.Config, scope tools.Scope, opts SyncOptions) (*SyncResult, error) {
 	snap, err := loadSnapshot(workspace)
 	if err != nil {
 		return nil, err
@@ -116,7 +116,7 @@ func RunSync(workspace string, c *canonical.Canonical, adapters []tools.Adapter,
 	// Orphan cleanup uses this so disabling a tool doesn't auto-delete its synced files.
 	allRenderedPaths := make(map[string]bool)
 	for _, a := range adapters {
-		if !a.SupportsScope(scope).Supported {
+		if !a.Meta.SupportsScope(scope).Supported {
 			continue
 		}
 		writes, err := a.Render(c, scope)
@@ -131,20 +131,20 @@ func RunSync(workspace string, c *canonical.Canonical, adapters []tools.Adapter,
 	result := &SyncResult{}
 
 	for _, a := range adapters {
-		if !cfg.IsEnabled(a.Name()) {
+		if !cfg.IsEnabled(a.Meta.Name) {
 			continue
 		}
-		if !a.SupportsScope(scope).Supported {
+		if !a.Meta.SupportsScope(scope).Supported {
 			continue
 		}
 		writes, err := a.Render(c, scope)
 		if err != nil {
-			result.Errors = append(result.Errors, fmt.Errorf("render %s: %w", a.Name(), err))
+			result.Errors = append(result.Errors, fmt.Errorf("render %s: %w", a.Meta.Name, err))
 			continue
 		}
 		for _, fw := range writes {
 			if opts.Skip[fw.Path] {
-				result.Skipped = append(result.Skipped, SyncedFile{ToolName: a.Name(), Concept: fw.Concept, Path: fw.Path})
+				result.Skipped = append(result.Skipped, SyncedFile{ToolName: a.Meta.Name, Concept: fw.Concept, Path: fw.Path})
 				continue
 			}
 			absPath := filepath.Join(workspace, fw.Path)
@@ -157,7 +157,7 @@ func RunSync(workspace string, c *canonical.Canonical, adapters []tools.Adapter,
 				continue
 			}
 			snap.Files[fw.Path] = hashBytes(fw.Content)
-			result.Written = append(result.Written, SyncedFile{ToolName: a.Name(), Concept: fw.Concept, Path: fw.Path})
+			result.Written = append(result.Written, SyncedFile{ToolName: a.Meta.Name, Concept: fw.Concept, Path: fw.Path})
 		}
 	}
 

@@ -4,58 +4,32 @@ import (
 	"github.com/noah-hrbth/agentsync/internal/canonical"
 )
 
-type zedAdapter struct{}
-
-func (a *zedAdapter) Name() string { return "Zed" }
-
-func (a *zedAdapter) Detect(_ string) Installation {
-	return detectConfigDir("zed")
+var zedMeta = ToolMeta{
+	Key:    "zed",
+	Name:   "Zed",
+	Detect: detectConfigDir("zed"),
+	Aliases: map[Concept]string{
+		ConceptRules: ".rules",
+	},
+	Concepts: map[Concept]Compatibility{
+		ConceptRules:    {Supported: true},
+		ConceptSkills:   {Supported: false, Reason: "Zed has no skills concept"},
+		ConceptAgents:   {Supported: false, Reason: "Zed's agent_servers expects executable specs, not markdown system prompts"},
+		ConceptCommands: {Supported: false, Reason: "Zed slash commands are WASM extensions, not file-defined"},
+	},
+	Scopes: map[Scope]Compatibility{
+		ScopeProject: {Supported: true},
+		ScopeUser:    {Supported: false, Reason: "Zed has no global rules file — only project-root .rules"},
+	},
+	ConceptInfo: map[Concept]string{
+		ConceptRules:    "Written to .rules at workspace root. Project scope only — Zed has no global rules file.",
+		ConceptSkills:   "Zed has no skills concept.",
+		ConceptAgents:   "Zed's agent_servers expects executable specs, not markdown system prompts.",
+		ConceptCommands: "Zed slash commands are WASM extensions, not file-defined.",
+	},
 }
 
-func (a *zedAdapter) Supports(concept Concept) Compatibility {
-	switch concept {
-	case ConceptRules:
-		return Compatibility{Supported: true}
-	case ConceptSkills:
-		return Compatibility{Supported: false, Reason: "Zed has no skills concept"}
-	case ConceptAgents:
-		return Compatibility{Supported: false, Reason: "Zed's agent_servers expects executable specs, not markdown system prompts"}
-	case ConceptCommands:
-		return Compatibility{Supported: false, Reason: "Zed slash commands are WASM extensions, not file-defined"}
-	default:
-		return Compatibility{Supported: false}
-	}
-}
-
-func (a *zedAdapter) SupportsScope(scope Scope) Compatibility {
-	if scope == ScopeUser {
-		return Compatibility{Supported: false, Reason: "Zed has no global rules file — only project-root .rules"}
-	}
-	return Compatibility{Supported: true}
-}
-
-func (a *zedAdapter) Alias(concept Concept) string {
-	if concept == ConceptRules {
-		return ".rules"
-	}
-	return ""
-}
-
-func (a *zedAdapter) ConceptInfo(concept Concept) string {
-	switch concept {
-	case ConceptRules:
-		return "Written to .rules at workspace root. Project scope only — Zed has no global rules file."
-	case ConceptSkills:
-		return "Zed has no skills concept."
-	case ConceptAgents:
-		return "Zed's agent_servers expects executable specs, not markdown system prompts."
-	case ConceptCommands:
-		return "Zed slash commands are WASM extensions, not file-defined."
-	}
-	return ""
-}
-
-func (a *zedAdapter) Render(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
+func renderZed(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	if scope == ScopeUser {
 		return nil, nil
 	}

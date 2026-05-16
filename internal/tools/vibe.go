@@ -6,51 +6,34 @@ import (
 	"github.com/noah-hrbth/agentsync/internal/canonical"
 )
 
-type vibeAdapter struct{}
-
-func (a *vibeAdapter) Name() string { return "Mistral Vibe" }
-
-func (a *vibeAdapter) Detect(_ string) Installation {
-	return detectGlobalDir("vibe")
-}
-
-func (a *vibeAdapter) Supports(concept Concept) Compatibility {
-	switch concept {
-	case ConceptRules, ConceptSkills, ConceptAgents:
-		return Compatibility{Supported: true}
-	case ConceptCommands:
-		return Compatibility{
+var vibeMeta = ToolMeta{
+	Key:    "vibe",
+	Name:   "Mistral Vibe",
+	Detect: detectGlobalDir("vibe"),
+	Concepts: map[Concept]Compatibility{
+		ConceptRules:  {Supported: true},
+		ConceptSkills: {Supported: true},
+		ConceptAgents: {Supported: true},
+		ConceptCommands: {
 			Supported:   true,
 			Deprecated:  true,
 			Reason:      "Mistral Vibe slash commands are skills with user-invocable: true — prefer skills",
 			Replacement: "skills",
-		}
-	default:
-		return Compatibility{Supported: false}
-	}
+		},
+	},
+	Scopes: map[Scope]Compatibility{
+		ScopeProject: {Supported: true},
+		ScopeUser:    {Supported: true},
+	},
+	ConceptInfo: map[Concept]string{
+		ConceptRules:    "Rules flatten into AGENTS.md at workspace root (or ~/.vibe/AGENTS.md at user scope) — Vibe has no per-file or glob-scoped rules.",
+		ConceptSkills:   "Skills at .vibe/skills/<dir>/SKILL.md.",
+		ConceptAgents:   "Subagents emit a TOML config at .vibe/agents/<name>.toml plus a prompt at .vibe/prompts/<name>.md (referenced by system_prompt_id).",
+		ConceptCommands: "Commands render as user-invocable skills under .vibe/skills/<name>/SKILL.md — command names must not collide with skill names. Vibe has no separate commands concept; prefer skills.",
+	},
 }
 
-func (a *vibeAdapter) SupportsScope(_ Scope) Compatibility {
-	return Compatibility{Supported: true}
-}
-
-func (a *vibeAdapter) Alias(_ Concept) string { return "" }
-
-func (a *vibeAdapter) ConceptInfo(concept Concept) string {
-	switch concept {
-	case ConceptRules:
-		return "Rules flatten into AGENTS.md at workspace root (or ~/.vibe/AGENTS.md at user scope) — Vibe has no per-file or glob-scoped rules."
-	case ConceptSkills:
-		return "Skills at .vibe/skills/<dir>/SKILL.md."
-	case ConceptAgents:
-		return "Subagents emit a TOML config at .vibe/agents/<name>.toml plus a prompt at .vibe/prompts/<name>.md (referenced by system_prompt_id)."
-	case ConceptCommands:
-		return "Commands render as user-invocable skills under .vibe/skills/<name>/SKILL.md — command names must not collide with skill names. Vibe has no separate commands concept; prefer skills."
-	}
-	return ""
-}
-
-func (a *vibeAdapter) Render(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
+func renderVibe(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	var files []FileWrite
 
 	// Rules flatten into AGENTS.md (no per-file rules; Vibe has no globs concept).

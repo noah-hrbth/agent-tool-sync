@@ -6,52 +6,37 @@ import (
 	"github.com/noah-hrbth/agentsync/internal/canonical"
 )
 
-type claudeAdapter struct{}
-
-func (a *claudeAdapter) Name() string { return "Claude Code" }
-
-func (a *claudeAdapter) Detect(_ string) Installation {
-	return detectGlobalDir("claude")
-}
-
-func (a *claudeAdapter) Supports(concept Concept) Compatibility {
-	if concept == ConceptCommands {
-		return Compatibility{
+var claudeMeta = ToolMeta{
+	Key:    "claude",
+	Name:   "Claude Code",
+	Detect: detectGlobalDir("claude"),
+	Aliases: map[Concept]string{
+		ConceptRules: "CLAUDE.md",
+	},
+	Concepts: map[Concept]Compatibility{
+		ConceptRules:  {Supported: true},
+		ConceptSkills: {Supported: true},
+		ConceptAgents: {Supported: true},
+		ConceptCommands: {
 			Supported:   true,
 			Deprecated:  true,
 			Reason:      "merged into skills 2026-01-24 — prefer skills",
 			Replacement: "skills",
-		}
-	}
-	return Compatibility{Supported: true}
+		},
+	},
+	Scopes: map[Scope]Compatibility{
+		ScopeProject: {Supported: true},
+		ScopeUser:    {Supported: true},
+	},
+	ConceptInfo: map[Concept]string{
+		ConceptRules:    "Root memory at CLAUDE.md (project) or ~/.claude/CLAUDE.md (user). Per-file rules at .claude/rules/<name>.md.",
+		ConceptSkills:   "Skills at .claude/skills/<dir>/SKILL.md.",
+		ConceptAgents:   "Subagents at .claude/agents/<name>.md.",
+		ConceptCommands: "Claude Code merged commands into skills on 2026-01-24 — prefer skills. Commands are not rendered.",
+	},
 }
 
-func (a *claudeAdapter) SupportsScope(_ Scope) Compatibility {
-	return Compatibility{Supported: true}
-}
-
-func (a *claudeAdapter) Alias(concept Concept) string {
-	if concept == ConceptRules {
-		return "CLAUDE.md"
-	}
-	return ""
-}
-
-func (a *claudeAdapter) ConceptInfo(concept Concept) string {
-	switch concept {
-	case ConceptRules:
-		return "Root memory at CLAUDE.md (project) or ~/.claude/CLAUDE.md (user). Per-file rules at .claude/rules/<name>.md."
-	case ConceptSkills:
-		return "Skills at .claude/skills/<dir>/SKILL.md."
-	case ConceptAgents:
-		return "Subagents at .claude/agents/<name>.md."
-	case ConceptCommands:
-		return "Claude Code merged commands into skills on 2026-01-24 — prefer skills. Commands are not rendered."
-	}
-	return ""
-}
-
-func (a *claudeAdapter) Render(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
+func renderClaude(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	// Project memory lives at <workspace>/CLAUDE.md (auto-discovered by Claude Code
 	// from cwd up the tree). User memory lives at ~/.claude/CLAUDE.md.
 	rootPath := "CLAUDE.md"

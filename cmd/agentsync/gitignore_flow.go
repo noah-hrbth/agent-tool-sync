@@ -40,7 +40,7 @@ const maxInvalidPromptRetries = 3
 func applyGitignoreFlowCLI(
 	workspace string,
 	cfg *config.Config,
-	adapters []tools.Adapter,
+	adapters []tools.Tool,
 	scope tools.Scope,
 	in io.Reader,
 	out io.Writer,

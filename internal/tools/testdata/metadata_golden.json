@@ -1,0 +1,692 @@
+[
+  {
+    "Name": "Claude Code",
+    "Concepts": [
+      {
+        "Concept": "rules",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "CLAUDE.md",
+        "ConceptInfo": "Root memory at CLAUDE.md (project) or ~/.claude/CLAUDE.md (user). Per-file rules at .claude/rules/\u003cname\u003e.md."
+      },
+      {
+        "Concept": "skills",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Skills at .claude/skills/\u003cdir\u003e/SKILL.md."
+      },
+      {
+        "Concept": "agents",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Subagents at .claude/agents/\u003cname\u003e.md."
+      },
+      {
+        "Concept": "commands",
+        "Supports": {
+          "Supported": true,
+          "Reason": "merged into skills 2026-01-24 — prefer skills",
+          "Deprecated": true,
+          "Replacement": "skills"
+        },
+        "Alias": "",
+        "ConceptInfo": "Claude Code merged commands into skills on 2026-01-24 — prefer skills. Commands are not rendered."
+      }
+    ],
+    "Scopes": [
+      {
+        "Scope": "project",
+        "SupportsScope": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        }
+      },
+      {
+        "Scope": "user",
+        "SupportsScope": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        }
+      }
+    ]
+  },
+  {
+    "Name": "OpenCode",
+    "Concepts": [
+      {
+        "Concept": "rules",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Root memory at AGENTS.md (project) or ~/.config/opencode/AGENTS.md (user). Per-file rules append to AGENTS.md — OpenCode has no per-rule files."
+      },
+      {
+        "Concept": "skills",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Skills at .opencode/skills/\u003cdir\u003e/SKILL.md (project) or ~/.config/opencode/skills/ (user)."
+      },
+      {
+        "Concept": "agents",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Subagents at .opencode/agents/\u003cname\u003e.md."
+      },
+      {
+        "Concept": "commands",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Commands at .opencode/commands/\u003cname\u003e.md."
+      }
+    ],
+    "Scopes": [
+      {
+        "Scope": "project",
+        "SupportsScope": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        }
+      },
+      {
+        "Scope": "user",
+        "SupportsScope": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        }
+      }
+    ]
+  },
+  {
+    "Name": "Cursor",
+    "Concepts": [
+      {
+        "Concept": "rules",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "general.mdc",
+        "ConceptInfo": "AGENTS.md flattens to .cursor/rules/general.mdc (catch-all). Per-file rules at .cursor/rules/\u003cname\u003e.mdc. User-level rules live in Cursor's Settings UI, not on disk — user scope is unsupported."
+      },
+      {
+        "Concept": "skills",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Skills at .cursor/skills/\u003cdir\u003e/SKILL.md."
+      },
+      {
+        "Concept": "agents",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Subagents at .cursor/agents/\u003cname\u003e.md."
+      },
+      {
+        "Concept": "commands",
+        "Supports": {
+          "Supported": true,
+          "Reason": "Cursor promotes skills as the slash-command surface — prefer skills",
+          "Deprecated": true,
+          "Replacement": "skills"
+        },
+        "Alias": "",
+        "ConceptInfo": "Commands at .cursor/commands/\u003cname\u003e.md, but Cursor promotes skills as the slash-command surface — prefer skills."
+      }
+    ],
+    "Scopes": [
+      {
+        "Scope": "project",
+        "SupportsScope": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        }
+      },
+      {
+        "Scope": "user",
+        "SupportsScope": {
+          "Supported": false,
+          "Reason": "Cursor user rules are managed in the Settings UI, not files",
+          "Deprecated": false,
+          "Replacement": ""
+        }
+      }
+    ]
+  },
+  {
+    "Name": "Gemini CLI",
+    "Concepts": [
+      {
+        "Concept": "rules",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "GEMINI.md",
+        "ConceptInfo": "Root memory at GEMINI.md (project) or ~/.gemini/GEMINI.md (user). Per-file rules append to GEMINI.md — Gemini CLI has no per-rule files."
+      },
+      {
+        "Concept": "skills",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Skills at .gemini/skills/\u003cdir\u003e/SKILL.md."
+      },
+      {
+        "Concept": "agents",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Subagents at .gemini/agents/\u003cname\u003e.md."
+      },
+      {
+        "Concept": "commands",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Commands at .gemini/commands/\u003cname\u003e.toml (TOML format with description + prompt fields)."
+      }
+    ],
+    "Scopes": [
+      {
+        "Scope": "project",
+        "SupportsScope": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        }
+      },
+      {
+        "Scope": "user",
+        "SupportsScope": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        }
+      }
+    ]
+  },
+  {
+    "Name": "Codex CLI",
+    "Concepts": [
+      {
+        "Concept": "rules",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Root memory at AGENTS.md (project) or ~/.codex/AGENTS.md (user). Per-file rules append to AGENTS.md — Codex CLI has no per-rule files."
+      },
+      {
+        "Concept": "skills",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Project skills at .agents/skills/\u003cdir\u003e/SKILL.md (cross-tool, auto-scanned by Codex). User skills at ~/.codex/skills/."
+      },
+      {
+        "Concept": "agents",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Subagents at .codex/agents/\u003cname\u003e.toml (TOML config with developer_instructions field for the body)."
+      },
+      {
+        "Concept": "commands",
+        "Supports": {
+          "Supported": true,
+          "Reason": "legacy prompts deprecated — prefer skills",
+          "Deprecated": true,
+          "Replacement": "skills"
+        },
+        "Alias": "",
+        "ConceptInfo": "Codex legacy prompts are deprecated — prefer skills. Commands are not rendered."
+      }
+    ],
+    "Scopes": [
+      {
+        "Scope": "project",
+        "SupportsScope": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        }
+      },
+      {
+        "Scope": "user",
+        "SupportsScope": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        }
+      }
+    ]
+  },
+  {
+    "Name": "Zed",
+    "Concepts": [
+      {
+        "Concept": "rules",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": ".rules",
+        "ConceptInfo": "Written to .rules at workspace root. Project scope only — Zed has no global rules file."
+      },
+      {
+        "Concept": "skills",
+        "Supports": {
+          "Supported": false,
+          "Reason": "Zed has no skills concept",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Zed has no skills concept."
+      },
+      {
+        "Concept": "agents",
+        "Supports": {
+          "Supported": false,
+          "Reason": "Zed's agent_servers expects executable specs, not markdown system prompts",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Zed's agent_servers expects executable specs, not markdown system prompts."
+      },
+      {
+        "Concept": "commands",
+        "Supports": {
+          "Supported": false,
+          "Reason": "Zed slash commands are WASM extensions, not file-defined",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Zed slash commands are WASM extensions, not file-defined."
+      }
+    ],
+    "Scopes": [
+      {
+        "Scope": "project",
+        "SupportsScope": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        }
+      },
+      {
+        "Scope": "user",
+        "SupportsScope": {
+          "Supported": false,
+          "Reason": "Zed has no global rules file — only project-root .rules",
+          "Deprecated": false,
+          "Replacement": ""
+        }
+      }
+    ]
+  },
+  {
+    "Name": "Cline",
+    "Concepts": [
+      {
+        "Concept": "rules",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Root memory at AGENTS.md (project root). Per-file rules at .clinerules/\u003cname\u003e.md (project) or ~/Documents/Cline/Rules/\u003cname\u003e.md (user)."
+      },
+      {
+        "Concept": "skills",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Skills at .cline/skills/\u003cdir\u003e/SKILL.md (project) or ~/.cline/skills/ (user) — Cline does NOT read user skills from Documents/Cline/."
+      },
+      {
+        "Concept": "agents",
+        "Supports": {
+          "Supported": false,
+          "Reason": "Cline has no file-defined sub-agents",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Cline has no file-defined sub-agents."
+      },
+      {
+        "Concept": "commands",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Workflows (= slash commands) at .clinerules/workflows/\u003cname\u003e.md (project) or ~/Documents/Cline/Workflows/\u003cname\u003e.md (user)."
+      }
+    ],
+    "Scopes": [
+      {
+        "Scope": "project",
+        "SupportsScope": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        }
+      },
+      {
+        "Scope": "user",
+        "SupportsScope": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        }
+      }
+    ]
+  },
+  {
+    "Name": "JetBrains Junie",
+    "Concepts": [
+      {
+        "Concept": "rules",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Root memory at AGENTS.md (project root). Project scope only — rules and AGENTS.md are not synced at user scope. Per-file rules append to AGENTS.md."
+      },
+      {
+        "Concept": "skills",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Skills at .junie/skills/\u003cdir\u003e/SKILL.md (project) or ~/.junie/skills/ (user)."
+      },
+      {
+        "Concept": "agents",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Subagents at .junie/agents/\u003cname\u003e.md (project) or ~/.junie/agents/ (user)."
+      },
+      {
+        "Concept": "commands",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Commands at .junie/commands/\u003cname\u003e.md (project) or ~/.junie/commands/ (user)."
+      }
+    ],
+    "Scopes": [
+      {
+        "Scope": "project",
+        "SupportsScope": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        }
+      },
+      {
+        "Scope": "user",
+        "SupportsScope": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        }
+      }
+    ]
+  },
+  {
+    "Name": "Mistral Vibe",
+    "Concepts": [
+      {
+        "Concept": "rules",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Rules flatten into AGENTS.md at workspace root (or ~/.vibe/AGENTS.md at user scope) — Vibe has no per-file or glob-scoped rules."
+      },
+      {
+        "Concept": "skills",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Skills at .vibe/skills/\u003cdir\u003e/SKILL.md."
+      },
+      {
+        "Concept": "agents",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Subagents emit a TOML config at .vibe/agents/\u003cname\u003e.toml plus a prompt at .vibe/prompts/\u003cname\u003e.md (referenced by system_prompt_id)."
+      },
+      {
+        "Concept": "commands",
+        "Supports": {
+          "Supported": true,
+          "Reason": "Mistral Vibe slash commands are skills with user-invocable: true — prefer skills",
+          "Deprecated": true,
+          "Replacement": "skills"
+        },
+        "Alias": "",
+        "ConceptInfo": "Commands render as user-invocable skills under .vibe/skills/\u003cname\u003e/SKILL.md — command names must not collide with skill names. Vibe has no separate commands concept; prefer skills."
+      }
+    ],
+    "Scopes": [
+      {
+        "Scope": "project",
+        "SupportsScope": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        }
+      },
+      {
+        "Scope": "user",
+        "SupportsScope": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        }
+      }
+    ]
+  },
+  {
+    "Name": "GitHub Copilot",
+    "Concepts": [
+      {
+        "Concept": "rules",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Root memory at .github/copilot-instructions.md (project) or ~/.copilot/copilot-instructions.md (user). Per-file rules at .github/instructions/\u003cname\u003e.instructions.md with applyTo: glob — agentsync brace-expands multiple Paths into a single glob."
+      },
+      {
+        "Concept": "skills",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Skills at .github/skills/\u003cdir\u003e/SKILL.md (project) or ~/.copilot/skills/ (user). Skill directory name must match the skill's name."
+      },
+      {
+        "Concept": "agents",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Subagents at .github/agents/\u003cname\u003e.agent.md (project) or ~/.copilot/agents/ (user). Legacy .chatmode.md is not emitted — Copilot renamed chat modes to custom agents."
+      },
+      {
+        "Concept": "commands",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Prompts at .github/prompts/\u003cname\u003e.prompt.md (project only — Copilot has no documented user-level prompts directory; commands are not synced at user scope)."
+      }
+    ],
+    "Scopes": [
+      {
+        "Scope": "project",
+        "SupportsScope": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        }
+      },
+      {
+        "Scope": "user",
+        "SupportsScope": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        }
+      }
+    ]
+  }
+]

@@ -8,49 +8,32 @@ import (
 	"github.com/noah-hrbth/agentsync/internal/canonical"
 )
 
-type geminiAdapter struct{}
-
-func (a *geminiAdapter) Name() string { return "Gemini CLI" }
-
-func (a *geminiAdapter) Detect(_ string) Installation {
-	return detectGlobalDir("gemini")
+var geminiMeta = ToolMeta{
+	Key:    "gemini",
+	Name:   "Gemini CLI",
+	Detect: detectGlobalDir("gemini"),
+	Aliases: map[Concept]string{
+		ConceptRules: "GEMINI.md",
+	},
+	Concepts: map[Concept]Compatibility{
+		ConceptRules:    {Supported: true},
+		ConceptSkills:   {Supported: true},
+		ConceptAgents:   {Supported: true},
+		ConceptCommands: {Supported: true},
+	},
+	Scopes: map[Scope]Compatibility{
+		ScopeProject: {Supported: true},
+		ScopeUser:    {Supported: true},
+	},
+	ConceptInfo: map[Concept]string{
+		ConceptRules:    "Root memory at GEMINI.md (project) or ~/.gemini/GEMINI.md (user). Per-file rules append to GEMINI.md — Gemini CLI has no per-rule files.",
+		ConceptSkills:   "Skills at .gemini/skills/<dir>/SKILL.md.",
+		ConceptAgents:   "Subagents at .gemini/agents/<name>.md.",
+		ConceptCommands: "Commands at .gemini/commands/<name>.toml (TOML format with description + prompt fields).",
+	},
 }
 
-func (a *geminiAdapter) Supports(concept Concept) Compatibility {
-	switch concept {
-	case ConceptRules, ConceptSkills, ConceptAgents, ConceptCommands:
-		return Compatibility{Supported: true}
-	default:
-		return Compatibility{Supported: false}
-	}
-}
-
-func (a *geminiAdapter) SupportsScope(_ Scope) Compatibility {
-	return Compatibility{Supported: true}
-}
-
-func (a *geminiAdapter) Alias(concept Concept) string {
-	if concept == ConceptRules {
-		return "GEMINI.md"
-	}
-	return ""
-}
-
-func (a *geminiAdapter) ConceptInfo(concept Concept) string {
-	switch concept {
-	case ConceptRules:
-		return "Root memory at GEMINI.md (project) or ~/.gemini/GEMINI.md (user). Per-file rules append to GEMINI.md — Gemini CLI has no per-rule files."
-	case ConceptSkills:
-		return "Skills at .gemini/skills/<dir>/SKILL.md."
-	case ConceptAgents:
-		return "Subagents at .gemini/agents/<name>.md."
-	case ConceptCommands:
-		return "Commands at .gemini/commands/<name>.toml (TOML format with description + prompt fields)."
-	}
-	return ""
-}
-
-func (a *geminiAdapter) Render(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
+func renderGemini(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	rootContent := buildRootMemoryContent(c.AgentsMD, c.Rules)
 	// Gemini CLI reads GEMINI.md from the workspace root (and parent dirs) at project
 	// scope; user scope reads from ~/.gemini/GEMINI.md.

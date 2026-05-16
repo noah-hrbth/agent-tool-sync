@@ -68,7 +68,7 @@ type pendingSel struct {
 }
 
 type toolItem struct {
-	adapter tools.Adapter
+	adapter tools.Tool
 	enabled bool
 	install tools.Installation
 }
@@ -134,7 +134,7 @@ type model struct {
 	workspace string
 	canonical *canonical.Canonical
 	config    *config.Config
-	adapters  []tools.Adapter
+	adapters  []tools.Tool
 
 	scope       tools.Scope
 	initialized bool           // false when active scope's .agentsync/ doesn't exist
@@ -198,7 +198,7 @@ var clipboardWrite = clipboard.WriteAll
 
 // ---- helpers ----
 
-func initialModel(workspace string, scope tools.Scope, c *canonical.Canonical, cfg *config.Config, adapters []tools.Adapter) model {
+func initialModel(workspace string, scope tools.Scope, c *canonical.Canonical, cfg *config.Config, adapters []tools.Tool) model {
 	m := model{
 		workspace:   workspace,
 		canonical:   c,
@@ -285,13 +285,13 @@ func buildFileItems(c *canonical.Canonical) []fileItem {
 	return items
 }
 
-func buildToolItems(adapters []tools.Adapter, cfg *config.Config, workspace string) []toolItem {
+func buildToolItems(adapters []tools.Tool, cfg *config.Config, workspace string) []toolItem {
 	items := make([]toolItem, len(adapters))
 	for i, a := range adapters {
 		items[i] = toolItem{
 			adapter: a,
-			enabled: cfg.IsEnabled(a.Name()),
-			install: a.Detect(workspace),
+			enabled: cfg.IsEnabled(a.Meta.Name),
+			install: a.Meta.Detect(workspace),
 		}
 	}
 	return items
@@ -466,7 +466,7 @@ func matchesFileItem(f fileItem, path string) bool {
 
 // ---- tea commands ----
 
-func checkStatusCmd(workspace string, c *canonical.Canonical, adapters []tools.Adapter, cfg *config.Config, scope tools.Scope) tea.Cmd {
+func checkStatusCmd(workspace string, c *canonical.Canonical, adapters []tools.Tool, cfg *config.Config, scope tools.Scope) tea.Cmd {
 	return func() tea.Msg {
 		results, err := syncer.Status(workspace, c, adapters, cfg, scope)
 		if err != nil {
@@ -476,7 +476,7 @@ func checkStatusCmd(workspace string, c *canonical.Canonical, adapters []tools.A
 	}
 }
 
-func runSyncCmd(workspace string, c *canonical.Canonical, adapters []tools.Adapter, cfg *config.Config, scope tools.Scope, skip map[string]bool) tea.Cmd {
+func runSyncCmd(workspace string, c *canonical.Canonical, adapters []tools.Tool, cfg *config.Config, scope tools.Scope, skip map[string]bool) tea.Cmd {
 	return func() tea.Msg {
 		result, err := syncer.RunSync(workspace, c, adapters, cfg, scope, syncer.SyncOptions{Skip: skip})
 		return syncDoneMsg{result: result, err: err}
@@ -1416,9 +1416,9 @@ func (m model) toggleTool() model {
 	}
 	item := &m.toolItems[m.toolIdx]
 	item.enabled = !item.enabled
-	tc := m.config.Tools[item.adapter.Name()]
+	tc := m.config.Tools[item.adapter.Meta.Name]
 	tc.Enabled = item.enabled
-	m.config.Tools[item.adapter.Name()] = tc
+	m.config.Tools[item.adapter.Meta.Name] = tc
 	_ = config.Save(m.workspace, m.config)
 	m.refreshToolList()
 	return m
@@ -1635,7 +1635,7 @@ func (m model) saveCurrentFile(content string) error {
 // buildSyncLines formats the sync result as grouped lines: tool > concept > files.
 // Root memory files are shown under "AGENTS.md"; rules-dir files under "rules".
 // Cursor has no "AGENTS.md" subgroup — its general.mdc lives in /rules/.
-func buildSyncLines(result *syncer.SyncResult, adapters []tools.Adapter) []string {
+func buildSyncLines(result *syncer.SyncResult, adapters []tools.Tool) []string {
 	displayOrder := []string{"AGENTS.md", string(tools.ConceptSkills), string(tools.ConceptAgents), string(tools.ConceptCommands), string(tools.ConceptRules)}
 
 	type entry struct {
@@ -1661,7 +1661,7 @@ func buildSyncLines(result *syncer.SyncResult, adapters []tools.Adapter) []strin
 
 	var lines []string
 	for _, a := range adapters {
-		name := a.Name()
+		name := a.Meta.Name
 		byBucket, ok := grouped[name]
 		if !ok {
 			continue
@@ -2055,24 +2055,24 @@ func (m model) computeBadges() []string {
 	}
 	var badges []string
 	for _, a := range m.adapters {
-		compat := a.Supports(concept)
+		compat := a.Meta.Supports(concept)
 		switch {
 		case compat.Supported && !compat.Deprecated:
-			label := a.Name()
+			label := a.Meta.Name
 			if f.kind == kindRule {
-				if notice := ruleAppendNotice(a.Name()); notice != "" {
-					label = fmt.Sprintf("%s (%s)", a.Name(), notice)
+				if notice := ruleAppendNotice(a.Meta.Name); notice != "" {
+					label = fmt.Sprintf("%s (%s)", a.Meta.Name, notice)
 				}
 			} else {
-				if alias := a.Alias(concept); alias != "" {
-					label = fmt.Sprintf("%s (%s)", a.Name(), alias)
+				if alias := a.Meta.Alias(concept); alias != "" {
+					label = fmt.Sprintf("%s (%s)", a.Meta.Name, alias)
 				}
 			}
 			badges = append(badges, fmt.Sprintf("%s %s", styleBadgeOk, label))
 		case compat.Deprecated:
-			badges = append(badges, fmt.Sprintf("%s %s — %s", styleBadgeWarn, a.Name(), compat.Reason))
+			badges = append(badges, fmt.Sprintf("%s %s — %s", styleBadgeWarn, a.Meta.Name, compat.Reason))
 		default:
-			badges = append(badges, fmt.Sprintf("%s %s — %s", styleBadgeFail, a.Name(), compat.Reason))
+			badges = append(badges, fmt.Sprintf("%s %s — %s", styleBadgeFail, a.Meta.Name, compat.Reason))
 		}
 	}
 	return badges
@@ -2129,7 +2129,7 @@ func (m model) toolRowLines() []string {
 		conceptLabels := []string{"rules", "skills", "agents", "commands"}
 		var conceptStr []string
 		for ci, concept := range concepts {
-			compat := item.adapter.Supports(concept)
+			compat := item.adapter.Meta.Supports(concept)
 			switch {
 			case compat.Supported && !compat.Deprecated:
 				conceptStr = append(conceptStr, styleBadgeOk+" "+conceptLabels[ci])
@@ -2146,10 +2146,10 @@ func (m model) toolRowLines() []string {
 
 		var row string
 		if i == m.toolIdx {
-			name := styleSelected.Render(fmt.Sprintf("%-14s", item.adapter.Name()))
+			name := styleSelected.Render(fmt.Sprintf("%-14s", item.adapter.Meta.Name))
 			row = styleCursorMark.Render("▍ ") + check + "  " + name + "  " + installed + "  " + strings.Join(conceptStr, "  ")
 		} else {
-			row = "  " + fmt.Sprintf("%s  %-14s  %-15s  %s", check, item.adapter.Name(), installed, strings.Join(conceptStr, "  "))
+			row = "  " + fmt.Sprintf("%s  %-14s  %-15s  %s", check, item.adapter.Meta.Name, installed, strings.Join(conceptStr, "  "))
 		}
 		rows = append(rows, row)
 	}
@@ -2317,9 +2317,9 @@ func (m model) overlayToolInfo(base string) string {
 	}
 
 	var lines []string
-	lines = append(lines, styleInputLabel.Render(a.Name()))
+	lines = append(lines, styleInputLabel.Render(a.Meta.Name))
 
-	scopeCompat := a.SupportsScope(m.scope)
+	scopeCompat := a.Meta.SupportsScope(m.scope)
 	installStatus := "not installed"
 	if item.install.Found {
 		installStatus = "installed"
@@ -2350,7 +2350,7 @@ func (m model) overlayToolInfo(base string) string {
 	}
 
 	for i, concept := range concepts {
-		compat := a.Supports(concept)
+		compat := a.Meta.Supports(concept)
 		var badge string
 		switch {
 		case compat.Supported && !compat.Deprecated:
@@ -2368,7 +2368,7 @@ func (m model) overlayToolInfo(base string) string {
 		lines = append(lines, header)
 
 		var detail string
-		if info := a.ConceptInfo(concept); info != "" {
+		if info := a.Meta.Info(concept); info != "" {
 			detail = info
 		} else if compat.Reason != "" {
 			detail = compat.Reason
@@ -2492,7 +2492,7 @@ func newFileTitle(k fileKind) string {
 // The other scope is lazy-loaded on first toggle. If the active scope's
 // .agentsync/ doesn't exist, the TUI launches with an empty-state banner
 // instead of failing.
-func Run(workspace string, scope tools.Scope, adapters []tools.Adapter) error {
+func Run(workspace string, scope tools.Scope, adapters []tools.Tool) error {
 	snap := loadScopeSnapshot(workspace, scope)
 	if snap.loadErr != nil {
 		return fmt.Errorf("load %s scope: %w", scope, snap.loadErr)

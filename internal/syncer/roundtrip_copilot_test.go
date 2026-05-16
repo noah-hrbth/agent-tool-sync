@@ -11,13 +11,13 @@ import (
 	"github.com/noah-hrbth/agentsync/internal/tools"
 )
 
-// TestRoundtripClineJunie renders a probe canonical for both new adapters at
-// both scopes, writes the output to a temp workspace, then calls AdoptExternal
-// on every reversible path. Catches drift between Render path conventions and
-// adopt.go matchers for Cline + JetBrains Junie.
-func TestRoundtripClineJunie(t *testing.T) {
+// TestRoundtripCopilot renders a probe canonical through the GitHub Copilot
+// adapter at both scopes, writes outputs to a temp workspace, then calls
+// AdoptExternal on each reversible path. Catches drift between Render path
+// conventions and adopt.go matchers.
+func TestRoundtripCopilot(t *testing.T) {
 	probe := &canonical.Canonical{
-		AgentsMD: "# Probe\n\nRoot memory body with multi-line content.\n",
+		AgentsMD: "# Probe\n\nRoot memory body.\n",
 		Rules: []*canonical.Rule{{
 			Filename: "sample-rule",
 			Body:     "Rule body content.\n",
@@ -44,65 +44,43 @@ func TestRoundtripClineJunie(t *testing.T) {
 		}},
 	}
 
-	type expectation struct {
-		path   string
-		kind   string // "skill" | "agent" | "command" | "rule"
-		expect bool   // true = adopt should succeed; false = path is intentionally non-reversible
-	}
-
 	cases := []struct {
-		adapter    string
+		name       string
 		scope      tools.Scope
-		reversible map[string]string // path → kind expected to be reversible
+		reversible map[string]string // path → kind ("rule"|"skill"|"agent"|"command")
 	}{
 		{
-			adapter: "Cline",
-			scope:   tools.ScopeProject,
+			name:  "project",
+			scope: tools.ScopeProject,
 			reversible: map[string]string{
-				".clinerules/sample-rule.md":              "rule",
-				".cline/skills/sample-skill/SKILL.md":     "skill",
-				".clinerules/workflows/sample-command.md": "command",
+				".github/copilot-instructions.md":                  "agentsmd",
+				".github/instructions/sample-rule.instructions.md": "rule",
+				".github/skills/sample-skill/SKILL.md":             "skill",
+				".github/agents/sample-agent.agent.md":             "agent",
+				".github/prompts/sample-command.prompt.md":         "command",
 			},
 		},
 		{
-			adapter: "Cline",
-			scope:   tools.ScopeUser,
+			name:  "user",
+			scope: tools.ScopeUser,
 			reversible: map[string]string{
-				"Documents/Cline/Rules/sample-rule.md":        "rule",
-				".cline/skills/sample-skill/SKILL.md":         "skill",
-				"Documents/Cline/Workflows/sample-command.md": "command",
-			},
-		},
-		{
-			adapter: "JetBrains Junie",
-			scope:   tools.ScopeProject,
-			reversible: map[string]string{
-				".junie/skills/sample-skill/SKILL.md": "skill",
-				".junie/agents/sample-agent.md":       "agent",
-				".junie/commands/sample-command.md":   "command",
-			},
-		},
-		{
-			adapter: "JetBrains Junie",
-			scope:   tools.ScopeUser,
-			reversible: map[string]string{
-				".junie/skills/sample-skill/SKILL.md": "skill",
-				".junie/agents/sample-agent.md":       "agent",
-				".junie/commands/sample-command.md":   "command",
+				".copilot/copilot-instructions.md":                  "agentsmd",
+				".copilot/instructions/sample-rule.instructions.md": "rule",
+				".copilot/skills/sample-skill/SKILL.md":             "skill",
+				".copilot/agents/sample-agent.agent.md":             "agent",
+				// no user-scope command path
 			},
 		},
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.adapter+"/"+tc.scope.String(), func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			ws := t.TempDir()
-			// Seed the canonical dir so SaveX has somewhere to write.
 			for _, sub := range []string{"rules", "skills", "agents", "commands"} {
 				if err := os.MkdirAll(filepath.Join(ws, ".agentsync", sub), 0o755); err != nil {
 					t.Fatal(err)
 				}
 			}
-			// Write initial AGENTS.md so reload works.
 			if err := os.WriteFile(filepath.Join(ws, ".agentsync", "AGENTS.md"), []byte(probe.AgentsMD), 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -110,14 +88,14 @@ func TestRoundtripClineJunie(t *testing.T) {
 			var adapter tools.Tool
 			found := false
 			for _, a := range tools.All() {
-				if a.Meta.Name == tc.adapter {
+				if a.Meta.Name == "GitHub Copilot" {
 					adapter = a
 					found = true
 					break
 				}
 			}
 			if !found {
-				t.Fatalf("adapter %q not registered", tc.adapter)
+				t.Fatal("adapter \"GitHub Copilot\" not registered")
 			}
 
 			writes, err := adapter.Render(probe, tc.scope)
@@ -125,7 +103,17 @@ func TestRoundtripClineJunie(t *testing.T) {
 				t.Fatalf("Render: %v", err)
 			}
 
-			// Write every output to disk.
+			// Cross-check: every "reversible" path must be present in writes.
+			emitted := map[string]bool{}
+			for _, fw := range writes {
+				emitted[fw.Path] = true
+			}
+			for path := range tc.reversible {
+				if !emitted[path] {
+					t.Errorf("adapter did not emit expected path %q; got %v", path, pathsList(writes))
+				}
+			}
+
 			for _, fw := range writes {
 				abs := filepath.Join(ws, fw.Path)
 				if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
@@ -136,19 +124,18 @@ func TestRoundtripClineJunie(t *testing.T) {
 				}
 			}
 
-			// Adopt every path declared reversible; expect success.
 			for path := range tc.reversible {
 				if err := syncer.AdoptExternal(ws, path); err != nil {
-					t.Errorf("AdoptExternal(%q): unexpected error: %v", path, err)
+					t.Errorf("AdoptExternal(%q): %v", path, err)
 				}
 			}
 
-			// Verify the adopted entities exist in canonical with non-empty content.
 			checks := map[string]string{
-				"rule":    filepath.Join(".agentsync", "rules", "sample-rule.md"),
-				"skill":   filepath.Join(".agentsync", "skills", "sample-skill", "SKILL.md"),
-				"agent":   filepath.Join(".agentsync", "agents", "sample-agent.md"),
-				"command": filepath.Join(".agentsync", "commands", "sample-command.md"),
+				"agentsmd": filepath.Join(".agentsync", "AGENTS.md"),
+				"rule":     filepath.Join(".agentsync", "rules", "sample-rule.md"),
+				"skill":    filepath.Join(".agentsync", "skills", "sample-skill", "SKILL.md"),
+				"agent":    filepath.Join(".agentsync", "agents", "sample-agent.md"),
+				"command":  filepath.Join(".agentsync", "commands", "sample-command.md"),
 			}
 			seenKinds := map[string]bool{}
 			for _, kind := range tc.reversible {
@@ -164,29 +151,40 @@ func TestRoundtripClineJunie(t *testing.T) {
 					t.Errorf("expected canonical %s at %s: %v", kind, rel, err)
 					continue
 				}
-				if len(data) == 0 {
-					t.Errorf("canonical %s empty at %s", kind, rel)
-				}
-				// Sanity: the body should be in the adopted file.
 				switch kind {
+				case "agentsmd":
+					if !strings.Contains(string(data), "Root memory body.") {
+						t.Errorf("canonical AGENTS.md body missing: %s", string(data))
+					}
 				case "rule":
 					if !strings.Contains(string(data), "Rule body content.") {
-						t.Errorf("canonical rule body missing in roundtrip: %s", string(data))
+						t.Errorf("canonical rule body missing: %s", string(data))
+					}
+					if !strings.Contains(string(data), "src/**/*.ts") {
+						t.Errorf("canonical rule should preserve applyTo as Paths; got: %s", string(data))
 					}
 				case "skill":
 					if !strings.Contains(string(data), "Skill instructions.") {
-						t.Errorf("canonical skill body missing in roundtrip: %s", string(data))
+						t.Errorf("canonical skill body missing: %s", string(data))
 					}
 				case "agent":
 					if !strings.Contains(string(data), "Agent system prompt.") {
-						t.Errorf("canonical agent body missing in roundtrip: %s", string(data))
+						t.Errorf("canonical agent body missing: %s", string(data))
 					}
 				case "command":
 					if !strings.Contains(string(data), "Command prompt body.") {
-						t.Errorf("canonical command body missing in roundtrip: %s", string(data))
+						t.Errorf("canonical command body missing: %s", string(data))
 					}
 				}
 			}
 		})
 	}
+}
+
+func pathsList(writes []tools.FileWrite) []string {
+	out := make([]string, len(writes))
+	for i, w := range writes {
+		out[i] = w.Path
+	}
+	return out
 }

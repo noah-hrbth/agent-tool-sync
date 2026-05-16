@@ -26,7 +26,10 @@ const (
 // `.agentsync` is always excluded (defensive — no adapter should emit it).
 // `AGENTS.md` at the workspace root is also excluded per the user-confirmed
 // carve-out (it is a shared human-readable spec, commonly committed).
-func Compute(adapters []tools.Adapter) []string {
+// `.github` is excluded because it is shared with CI workflows that MUST stay
+// tracked; the GitHub Copilot adapter writes inside `.github/` for instructions,
+// skills, agents, and prompts.
+func Compute(adapters []tools.Tool) []string {
 	stub := stubCanonical()
 	seen := make(map[string]struct{}, 32)
 	for _, a := range adapters {
@@ -56,7 +59,7 @@ func entryFor(path string) string {
 		return ""
 	}
 	seg, _, hasSlash := strings.Cut(slash, "/")
-	if seg == "" || seg == ".agentsync" {
+	if seg == "" || seg == ".agentsync" || seg == ".github" {
 		return ""
 	}
 	if !hasSlash && seg == "AGENTS.md" {

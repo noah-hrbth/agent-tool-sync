@@ -1,26 +1,28 @@
 package tools
 
-// All returns all built-in adapters in a stable order.
-func All() []Adapter {
-	return []Adapter{
-		&claudeAdapter{},
-		&openCodeAdapter{},
-		&cursorAdapter{},
-		&geminiAdapter{},
-		&codexAdapter{},
-		&zedAdapter{},
-		&clineAdapter{},
-		&junieAdapter{},
-		&vibeAdapter{},
+// All returns all built-in tools in a stable order. This slice is the single
+// source of truth for adapter ordering and Names().
+func All() []Tool {
+	return []Tool{
+		{Meta: claudeMeta, Render: renderClaude},
+		{Meta: openCodeMeta, Render: renderOpenCode},
+		{Meta: cursorMeta, Render: renderCursor},
+		{Meta: geminiMeta, Render: renderGemini},
+		{Meta: codexMeta, Render: renderCodex},
+		{Meta: zedMeta, Render: renderZed},
+		{Meta: clineMeta, Render: renderCline},
+		{Meta: junieMeta, Render: renderJunie},
+		{Meta: vibeMeta, Render: renderVibe},
+		{Meta: copilotMeta, Render: renderCopilot},
 	}
 }
 
-// Names returns the Name() of each adapter from All().
+// Names returns the display name of each tool from All().
 func Names() []string {
 	all := All()
 	names := make([]string, len(all))
-	for i, a := range all {
-		names[i] = a.Name()
+	for i, t := range all {
+		names[i] = t.Meta.Name
 	}
 	return names
 }

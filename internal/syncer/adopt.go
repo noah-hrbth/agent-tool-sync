@@ -30,7 +30,9 @@ func AdoptExternal(workspace, path string) error {
 		path == ".config/opencode/AGENTS.md" ||
 		path == "GEMINI.md" ||
 		path == ".gemini/GEMINI.md" ||
-		path == ".vibe/AGENTS.md":
+		path == ".vibe/AGENTS.md" ||
+		path == ".github/copilot-instructions.md" ||
+		path == ".copilot/copilot-instructions.md":
 		return canonical.SaveAgentsMD(workspace, content)
 
 	case path == ".cursor/rules/general.mdc":
@@ -58,6 +60,57 @@ func AdoptExternal(workspace, path string) error {
 		r.Filename = strings.TrimSuffix(filepath.Base(path), ".md")
 		r.Body = string(body)
 		return canonical.SaveRule(workspace, &r)
+
+	case matchCopilotInstructionPath(path):
+		// Copilot uses `applyTo:` (single glob string) instead of `paths:` array.
+		var fm struct {
+			ApplyTo     string `yaml:"applyTo"`
+			Description string `yaml:"description"`
+		}
+		body, err := frontmatter.Parse(strings.NewReader(content), &fm)
+		if err != nil {
+			return fmt.Errorf("parse copilot instruction frontmatter: %w", err)
+		}
+		var r canonical.Rule
+		r.Filename = strings.TrimSuffix(filepath.Base(path), ".instructions.md")
+		r.Description = fm.Description
+		if fm.ApplyTo != "" {
+			r.Paths = []string{fm.ApplyTo}
+		}
+		r.Body = string(body)
+		return canonical.SaveRule(workspace, &r)
+
+	case matchCopilotAgentPath(path):
+		var a canonical.Agent
+		body, err := frontmatter.Parse(strings.NewReader(content), &a)
+		if err != nil {
+			return fmt.Errorf("parse copilot agent frontmatter: %w", err)
+		}
+		a.Filename = strings.TrimSuffix(filepath.Base(path), ".agent.md")
+		a.Body = string(body)
+		return canonical.SaveAgent(workspace, &a)
+
+	case matchCopilotPromptPath(path):
+		// Copilot prompts use `tools:` (not `allowed-tools:`).
+		var fm struct {
+			Description  string   `yaml:"description"`
+			ArgumentHint string   `yaml:"argument-hint"`
+			Tools        []string `yaml:"tools"`
+			Model        string   `yaml:"model"`
+		}
+		body, err := frontmatter.Parse(strings.NewReader(content), &fm)
+		if err != nil {
+			return fmt.Errorf("parse copilot prompt frontmatter: %w", err)
+		}
+		cmd := canonical.Command{
+			Filename:     strings.TrimSuffix(filepath.Base(path), ".prompt.md"),
+			Description:  fm.Description,
+			ArgumentHint: fm.ArgumentHint,
+			AllowedTools: fm.Tools,
+			Model:        fm.Model,
+			Body:         string(body),
+		}
+		return canonical.SaveCommand(workspace, &cmd)
 
 	case matchRulePath(path):
 		var r canonical.Rule
@@ -131,7 +184,9 @@ func matchSkillPath(path string) bool {
 		strings.HasPrefix(path, ".config/opencode/skills/") ||
 		strings.HasPrefix(path, ".cline/skills/") ||
 		strings.HasPrefix(path, ".junie/skills/") ||
-		strings.HasPrefix(path, ".vibe/skills/")) &&
+		strings.HasPrefix(path, ".vibe/skills/") ||
+		strings.HasPrefix(path, ".github/skills/") ||
+		strings.HasPrefix(path, ".copilot/skills/")) &&
 		strings.HasSuffix(path, "/SKILL.md")
 }
 
@@ -194,4 +249,54 @@ func matchClineWorkflowPath(path string) bool {
 	}
 	return strings.HasPrefix(path, ".clinerules/workflows/") ||
 		strings.HasPrefix(path, "Documents/Cline/Workflows/")
+}
+
+// matchCopilotInstructionPath returns true for Copilot per-file rules at either
+// scope: .github/instructions/<name>.instructions.md or .copilot/instructions/<name>.instructions.md.
+// Single-level only — nested subdirectories under instructions/ are not adopted.
+func matchCopilotInstructionPath(path string) bool {
+	if !strings.HasSuffix(path, ".instructions.md") {
+		return false
+	}
+	var rest string
+	switch {
+	case strings.HasPrefix(path, ".github/instructions/"):
+		rest = strings.TrimPrefix(path, ".github/instructions/")
+	case strings.HasPrefix(path, ".copilot/instructions/"):
+		rest = strings.TrimPrefix(path, ".copilot/instructions/")
+	default:
+		return false
+	}
+	return !strings.Contains(rest, "/")
+}
+
+// matchCopilotAgentPath returns true for Copilot custom agents at either scope:
+// .github/agents/<name>.agent.md or .copilot/agents/<name>.agent.md.
+func matchCopilotAgentPath(path string) bool {
+	if !strings.HasSuffix(path, ".agent.md") {
+		return false
+	}
+	var rest string
+	switch {
+	case strings.HasPrefix(path, ".github/agents/"):
+		rest = strings.TrimPrefix(path, ".github/agents/")
+	case strings.HasPrefix(path, ".copilot/agents/"):
+		rest = strings.TrimPrefix(path, ".copilot/agents/")
+	default:
+		return false
+	}
+	return !strings.Contains(rest, "/")
+}
+
+// matchCopilotPromptPath returns true for Copilot prompt files (commands concept).
+// Project scope only — Copilot has no documented user-level prompts directory.
+func matchCopilotPromptPath(path string) bool {
+	if !strings.HasSuffix(path, ".prompt.md") {
+		return false
+	}
+	if !strings.HasPrefix(path, ".github/prompts/") {
+		return false
+	}
+	rest := strings.TrimPrefix(path, ".github/prompts/")
+	return !strings.Contains(rest, "/")
 }

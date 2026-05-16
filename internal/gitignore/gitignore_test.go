@@ -8,36 +8,23 @@ import (
 	"github.com/noah-hrbth/agentsync/internal/tools"
 )
 
-// fakeAdapter is a minimal Adapter implementation used to drive Compute without
-// touching real adapters. Only Render is exercised; the other methods return
-// inert values.
-type fakeAdapter struct {
-	name  string
-	files []tools.FileWrite
-}
-
-func (a *fakeAdapter) Name() string                                { return a.name }
-func (a *fakeAdapter) Detect(string) tools.Installation            { return tools.Installation{} }
-func (a *fakeAdapter) Supports(tools.Concept) tools.Compatibility  { return tools.Compatibility{Supported: true} }
-func (a *fakeAdapter) SupportsScope(tools.Scope) tools.Compatibility {
-	return tools.Compatibility{Supported: true}
-}
-func (a *fakeAdapter) Alias(tools.Concept) string                  { return "" }
-func (a *fakeAdapter) ConceptInfo(tools.Concept) string            { return "" }
-func (a *fakeAdapter) Render(_ *canonical.Canonical, _ tools.Scope) ([]tools.FileWrite, error) {
-	return a.files, nil
-}
-
-func newFake(name string, paths ...string) tools.Adapter {
-	fa := &fakeAdapter{name: name}
+// newFake builds a minimal tools.Tool used to drive Compute without touching
+// real adapters. Only Render is exercised; metadata is inert.
+func newFake(name string, paths ...string) tools.Tool {
+	var files []tools.FileWrite
 	for _, p := range paths {
-		fa.files = append(fa.files, tools.FileWrite{Path: p})
+		files = append(files, tools.FileWrite{Path: p})
 	}
-	return fa
+	return tools.Tool{
+		Meta: tools.ToolMeta{Name: name},
+		Render: func(_ *canonical.Canonical, _ tools.Scope) ([]tools.FileWrite, error) {
+			return files, nil
+		},
+	}
 }
 
 func TestComputeExtractsFirstSegmentForDirPaths(t *testing.T) {
-	got := Compute([]tools.Adapter{newFake("x", ".foo/bar/baz.md")})
+	got := Compute([]tools.Tool{newFake("x", ".foo/bar/baz.md")})
 	want := []string{".foo/"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
@@ -45,15 +32,44 @@ func TestComputeExtractsFirstSegmentForDirPaths(t *testing.T) {
 }
 
 func TestComputeIncludesTopLevelFiles(t *testing.T) {
-	got := Compute([]tools.Adapter{newFake("x", "WIDGET.md")})
+	got := Compute([]tools.Tool{newFake("x", "WIDGET.md")})
 	want := []string{"WIDGET.md"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 }
 
+// TestComputeExcludesDotGithub ensures `.github/` is never auto-added to the
+// managed gitignore block. The GitHub Copilot adapter writes inside `.github/`,
+// but the directory is shared with CI workflows that MUST stay tracked.
+func TestComputeExcludesDotGithub(t *testing.T) {
+	got := Compute([]tools.Tool{newFake("copilot",
+		".github/copilot-instructions.md",
+		".github/instructions/foo.instructions.md",
+		".github/skills/foo/SKILL.md",
+		".github/agents/foo.agent.md",
+		".github/prompts/foo.prompt.md",
+	)})
+	for _, entry := range got {
+		if entry == ".github/" || entry == ".github" {
+			t.Errorf("Compute should never emit %q (would ignore CI workflows); got %v", entry, got)
+		}
+	}
+}
+
+// TestComputeExcludesDotGithubAgainstRealAdapters wires the actual adapter
+// registry through Compute and confirms `.github/` stays out of the result.
+func TestComputeExcludesDotGithubAgainstRealAdapters(t *testing.T) {
+	got := Compute(tools.All())
+	for _, entry := range got {
+		if entry == ".github/" || entry == ".github" {
+			t.Fatalf("real adapters caused Compute to emit %q; full result %v", entry, got)
+		}
+	}
+}
+
 func TestComputeReturnsSortedUnique(t *testing.T) {
-	got := Compute([]tools.Adapter{
+	got := Compute([]tools.Tool{
 		newFake("a", ".zeta/x", ".alpha/y", ".zeta/z"),
 		newFake("b", ".alpha/q", ".beta/r"),
 	})
@@ -64,7 +80,7 @@ func TestComputeReturnsSortedUnique(t *testing.T) {
 }
 
 func TestComputeExcludesAgentsyncDir(t *testing.T) {
-	got := Compute([]tools.Adapter{newFake("x", ".agentsync/foo.md", ".claude/skills/s.md")})
+	got := Compute([]tools.Tool{newFake("x", ".agentsync/foo.md", ".claude/skills/s.md")})
 	want := []string{".claude/"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
@@ -73,7 +89,7 @@ func TestComputeExcludesAgentsyncDir(t *testing.T) {
 
 func TestComputeExcludesRootAGENTSmd(t *testing.T) {
 	// Multiple adapters emit AGENTS.md at workspace root; it must not appear.
-	got := Compute([]tools.Adapter{
+	got := Compute([]tools.Tool{
 		newFake("a", "AGENTS.md", ".opencode/AGENTS.md"),
 		newFake("b", "AGENTS.md", ".cline/x.md"),
 	})

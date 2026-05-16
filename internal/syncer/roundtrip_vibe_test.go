@@ -78,14 +78,16 @@ func TestRoundtripVibe(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			var adapter tools.Adapter
+			var adapter tools.Tool
+			found := false
 			for _, a := range tools.All() {
-				if a.Name() == "Mistral Vibe" {
+				if a.Meta.Name == "Mistral Vibe" {
 					adapter = a
+					found = true
 					break
 				}
 			}
-			if adapter == nil {
+			if !found {
 				t.Fatal("adapter Mistral Vibe not registered")
 			}
 

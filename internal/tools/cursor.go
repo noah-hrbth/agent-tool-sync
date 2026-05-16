@@ -7,57 +7,37 @@ import (
 	"github.com/noah-hrbth/agentsync/internal/canonical"
 )
 
-type cursorAdapter struct{}
-
-func (a *cursorAdapter) Name() string { return "Cursor" }
-
-func (a *cursorAdapter) Detect(_ string) Installation {
-	return detectGlobalDir("cursor")
-}
-
-func (a *cursorAdapter) Supports(concept Concept) Compatibility {
-	switch concept {
-	case ConceptCommands:
-		return Compatibility{
+var cursorMeta = ToolMeta{
+	Key:    "cursor",
+	Name:   "Cursor",
+	Detect: detectGlobalDir("cursor"),
+	Aliases: map[Concept]string{
+		ConceptRules: "general.mdc",
+	},
+	Concepts: map[Concept]Compatibility{
+		ConceptRules:  {Supported: true},
+		ConceptSkills: {Supported: true},
+		ConceptAgents: {Supported: true},
+		ConceptCommands: {
 			Supported:   true,
 			Deprecated:  true,
 			Reason:      "Cursor promotes skills as the slash-command surface — prefer skills",
 			Replacement: "skills",
-		}
-	default:
-		return Compatibility{Supported: true}
-	}
+		},
+	},
+	Scopes: map[Scope]Compatibility{
+		ScopeProject: {Supported: true},
+		ScopeUser:    {Supported: false, Reason: "Cursor user rules are managed in the Settings UI, not files"},
+	},
+	ConceptInfo: map[Concept]string{
+		ConceptRules:    "AGENTS.md flattens to .cursor/rules/general.mdc (catch-all). Per-file rules at .cursor/rules/<name>.mdc. User-level rules live in Cursor's Settings UI, not on disk — user scope is unsupported.",
+		ConceptSkills:   "Skills at .cursor/skills/<dir>/SKILL.md.",
+		ConceptAgents:   "Subagents at .cursor/agents/<name>.md.",
+		ConceptCommands: "Commands at .cursor/commands/<name>.md, but Cursor promotes skills as the slash-command surface — prefer skills.",
+	},
 }
 
-func (a *cursorAdapter) SupportsScope(scope Scope) Compatibility {
-	if scope == ScopeUser {
-		return Compatibility{Supported: false, Reason: "Cursor user rules are managed in the Settings UI, not files"}
-	}
-	return Compatibility{Supported: true}
-}
-
-func (a *cursorAdapter) Alias(concept Concept) string {
-	if concept == ConceptRules {
-		return "general.mdc"
-	}
-	return ""
-}
-
-func (a *cursorAdapter) ConceptInfo(concept Concept) string {
-	switch concept {
-	case ConceptRules:
-		return "AGENTS.md flattens to .cursor/rules/general.mdc (catch-all). Per-file rules at .cursor/rules/<name>.mdc. User-level rules live in Cursor's Settings UI, not on disk — user scope is unsupported."
-	case ConceptSkills:
-		return "Skills at .cursor/skills/<dir>/SKILL.md."
-	case ConceptAgents:
-		return "Subagents at .cursor/agents/<name>.md."
-	case ConceptCommands:
-		return "Commands at .cursor/commands/<name>.md, but Cursor promotes skills as the slash-command surface — prefer skills."
-	}
-	return ""
-}
-
-func (a *cursorAdapter) Render(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
+func renderCursor(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	if scope == ScopeUser {
 		return nil, nil
 	}
