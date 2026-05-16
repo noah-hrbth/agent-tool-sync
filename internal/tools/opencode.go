@@ -45,9 +45,9 @@ var openCodeMeta = ToolMeta{
 // "global rules in a ~/.config/opencode/AGENTS.md").
 func openCodeBase(scope Scope) string {
 	if scope == ScopeUser {
-		return filepath.Join(".config", "opencode")
+		return opencodeDirUser
 	}
-	return ".opencode"
+	return opencodeDirProject
 }
 
 func renderOpenCode(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {

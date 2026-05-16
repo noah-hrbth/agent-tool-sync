@@ -48,9 +48,9 @@ func renderCline(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	}
 
 	// Per-rule files. Project: .clinerules/<name>.md. User: Documents/Cline/Rules/<name>.md.
-	rulesDir := ".clinerules"
+	rulesDir := clineRulesProject
 	if scope == ScopeUser {
-		rulesDir = filepath.Join("Documents", "Cline", "Rules")
+		rulesDir = clineRulesUser
 	}
 	for _, r := range c.Rules {
 		content := buildMDFrontmatter([]fmField{
@@ -75,15 +75,15 @@ func renderCline(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 		}, skill.Body)
 		files = append(files, FileWrite{
 			Concept: ConceptSkills,
-			Path:    filepath.Join(".cline", "skills", skill.Dir, "SKILL.md"),
+			Path:    filepath.Join(clineSkillsDir, "skills", skill.Dir, "SKILL.md"),
 			Content: []byte(content),
 		})
 	}
 
 	// Workflows = slash commands. Project: .clinerules/workflows/. User: Documents/Cline/Workflows/.
-	workflowsDir := filepath.Join(".clinerules", "workflows")
+	workflowsDir := filepath.Join(clineRulesProject, "workflows")
 	if scope == ScopeUser {
-		workflowsDir = filepath.Join("Documents", "Cline", "Workflows")
+		workflowsDir = clineWorkflowsUser
 	}
 	for _, cmd := range c.Commands {
 		files = append(files, FileWrite{

@@ -43,7 +43,7 @@ func renderCursor(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	}
 	rulesContent := fmt.Sprintf("---\nalwaysApply: true\n---\n%s", c.AgentsMD)
 	files := []FileWrite{
-		{Concept: ConceptRules, Path: ".cursor/rules/general.mdc", Content: []byte(rulesContent)},
+		{Concept: ConceptRules, Path: cursorCatchAll, Content: []byte(rulesContent)},
 	}
 
 	for _, r := range c.Rules {
@@ -54,7 +54,7 @@ func renderCursor(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 		}, r.Body)
 		files = append(files, FileWrite{
 			Concept: ConceptRules,
-			Path:    filepath.Join(".cursor", "rules", r.Filename+".mdc"),
+			Path:    filepath.Join(cursorDir, "rules", r.Filename+".mdc"),
 			Content: []byte(content),
 		})
 	}
@@ -68,7 +68,7 @@ func renderCursor(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 		}, skill.Body)
 		files = append(files, FileWrite{
 			Concept: ConceptSkills,
-			Path:    filepath.Join(".cursor", "skills", skill.Dir, "SKILL.md"),
+			Path:    filepath.Join(cursorDir, "skills", skill.Dir, "SKILL.md"),
 			Content: []byte(content),
 		})
 	}
@@ -81,7 +81,7 @@ func renderCursor(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 		}, agent.Body)
 		files = append(files, FileWrite{
 			Concept: ConceptAgents,
-			Path:    filepath.Join(".cursor", "agents", agent.Filename+".md"),
+			Path:    filepath.Join(cursorDir, "agents", agent.Filename+".md"),
 			Content: []byte(content),
 		})
 	}
@@ -89,7 +89,7 @@ func renderCursor(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	for _, cmd := range c.Commands {
 		files = append(files, FileWrite{
 			Concept: ConceptCommands,
-			Path:    filepath.Join(".cursor", "commands", cmd.Filename+".md"),
+			Path:    filepath.Join(cursorDir, "commands", cmd.Filename+".md"),
 			Content: []byte(cmd.Body),
 		})
 	}

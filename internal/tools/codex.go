@@ -39,7 +39,7 @@ func renderCodex(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	// scope; user scope reads from ~/.codex/AGENTS.md.
 	rootPath := "AGENTS.md"
 	if scope == ScopeUser {
-		rootPath = filepath.Join(".codex", "AGENTS.md")
+		rootPath = filepath.Join(codexDir, "AGENTS.md")
 	}
 	files := []FileWrite{
 		{Concept: ConceptRules, Path: rootPath, Content: []byte(rootContent)},
@@ -47,9 +47,9 @@ func renderCodex(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 
 	// Project skills live at .agents/skills/ (auto-scanned by Codex from cwd to repo root).
 	// User skills live at ~/.codex/skills/ (per Codex docs).
-	skillBase := ".agents"
+	skillBase := codexSkillsProject
 	if scope == ScopeUser {
-		skillBase = ".codex"
+		skillBase = codexDir
 	}
 	for _, skill := range c.Skills {
 		content := buildMDFrontmatter([]fmField{
@@ -72,7 +72,7 @@ func renderCodex(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 		})
 		files = append(files, FileWrite{
 			Concept: ConceptAgents,
-			Path:    filepath.Join(".codex", "agents", agent.Filename+".toml"),
+			Path:    filepath.Join(codexDir, "agents", agent.Filename+".toml"),
 			Content: []byte(content),
 		})
 	}

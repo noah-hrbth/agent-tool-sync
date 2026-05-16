@@ -39,7 +39,7 @@ func renderVibe(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	// Rules flatten into AGENTS.md (no per-file rules; Vibe has no globs concept).
 	rootPath := "AGENTS.md"
 	if scope == ScopeUser {
-		rootPath = filepath.Join(".vibe", "AGENTS.md")
+		rootPath = filepath.Join(vibeDir, "AGENTS.md")
 	}
 	rootContent := buildRootMemoryContent(c.AgentsMD, c.Rules)
 	files = append(files, FileWrite{
@@ -58,7 +58,7 @@ func renderVibe(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 		}, skill.Body)
 		files = append(files, FileWrite{
 			Concept: ConceptSkills,
-			Path:    filepath.Join(".vibe", "skills", skill.Dir, "SKILL.md"),
+			Path:    filepath.Join(vibeDir, "skills", skill.Dir, "SKILL.md"),
 			Content: []byte(content),
 		})
 	}
@@ -82,13 +82,13 @@ func renderVibe(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 		})
 		files = append(files, FileWrite{
 			Concept: ConceptAgents,
-			Path:    filepath.Join(".vibe", "agents", agent.Filename+".toml"),
+			Path:    filepath.Join(vibeDir, "agents", agent.Filename+".toml"),
 			Content: []byte(toml),
 		})
 		if agent.Body != "" {
 			files = append(files, FileWrite{
 				Concept: ConceptAgents,
-				Path:    filepath.Join(".vibe", "prompts", agent.Filename+".md"),
+				Path:    filepath.Join(vibeDir, "prompts", agent.Filename+".md"),
 				Content: []byte(agent.Body),
 			})
 		}
@@ -108,7 +108,7 @@ func renderVibe(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 		}, cmd.Body)
 		files = append(files, FileWrite{
 			Concept: ConceptCommands,
-			Path:    filepath.Join(".vibe", "skills", cmd.Filename, "SKILL.md"),
+			Path:    filepath.Join(vibeDir, "skills", cmd.Filename, "SKILL.md"),
 			Content: []byte(content),
 		})
 	}

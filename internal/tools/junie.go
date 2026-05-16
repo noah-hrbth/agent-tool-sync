@@ -52,7 +52,7 @@ func renderJunie(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 		}, skill.Body)
 		files = append(files, FileWrite{
 			Concept: ConceptSkills,
-			Path:    filepath.Join(".junie", "skills", skill.Dir, "SKILL.md"),
+			Path:    filepath.Join(junieDir, "skills", skill.Dir, "SKILL.md"),
 			Content: []byte(content),
 		})
 	}
@@ -66,7 +66,7 @@ func renderJunie(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 		}, agent.Body)
 		files = append(files, FileWrite{
 			Concept: ConceptAgents,
-			Path:    filepath.Join(".junie", "agents", agent.Filename+".md"),
+			Path:    filepath.Join(junieDir, "agents", agent.Filename+".md"),
 			Content: []byte(content),
 		})
 	}
@@ -77,7 +77,7 @@ func renderJunie(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 		}, cmd.Body)
 		files = append(files, FileWrite{
 			Concept: ConceptCommands,
-			Path:    filepath.Join(".junie", "commands", cmd.Filename+".md"),
+			Path:    filepath.Join(junieDir, "commands", cmd.Filename+".md"),
 			Content: []byte(content),
 		})
 	}

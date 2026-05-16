@@ -39,7 +39,7 @@ func renderGemini(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	// scope; user scope reads from ~/.gemini/GEMINI.md.
 	rootPath := "GEMINI.md"
 	if scope == ScopeUser {
-		rootPath = filepath.Join(".gemini", "GEMINI.md")
+		rootPath = filepath.Join(geminiDir, "GEMINI.md")
 	}
 	files := []FileWrite{
 		{Concept: ConceptRules, Path: rootPath, Content: []byte(rootContent)},
@@ -52,7 +52,7 @@ func renderGemini(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 		}, skill.Body)
 		files = append(files, FileWrite{
 			Concept: ConceptSkills,
-			Path:    filepath.Join(".gemini", "skills", skill.Dir, "SKILL.md"),
+			Path:    filepath.Join(geminiDir, "skills", skill.Dir, "SKILL.md"),
 			Content: []byte(content),
 		})
 	}
@@ -66,7 +66,7 @@ func renderGemini(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 		}, agent.Body)
 		files = append(files, FileWrite{
 			Concept: ConceptAgents,
-			Path:    filepath.Join(".gemini", "agents", agent.Filename+".md"),
+			Path:    filepath.Join(geminiDir, "agents", agent.Filename+".md"),
 			Content: []byte(content),
 		})
 	}
@@ -78,7 +78,7 @@ func renderGemini(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 		})
 		files = append(files, FileWrite{
 			Concept: ConceptCommands,
-			Path:    filepath.Join(".gemini", "commands", cmd.Filename+".toml"),
+			Path:    filepath.Join(geminiDir, "commands", cmd.Filename+".toml"),
 			Content: []byte(content),
 		})
 	}

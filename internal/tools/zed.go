@@ -35,6 +35,6 @@ func renderZed(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	}
 	rootContent := buildRootMemoryContent(c.AgentsMD, c.Rules)
 	return []FileWrite{
-		{Concept: ConceptRules, Path: ".rules", Content: []byte(rootContent)},
+		{Concept: ConceptRules, Path: zedRulesFile, Content: []byte(rootContent)},
 	}, nil
 }

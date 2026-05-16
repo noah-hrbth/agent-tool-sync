@@ -41,7 +41,7 @@ func renderClaude(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	// from cwd up the tree). User memory lives at ~/.claude/CLAUDE.md.
 	rootPath := "CLAUDE.md"
 	if scope == ScopeUser {
-		rootPath = filepath.Join(".claude", "CLAUDE.md")
+		rootPath = filepath.Join(claudeDir, "CLAUDE.md")
 	}
 	files := []FileWrite{
 		{Concept: ConceptRules, Path: rootPath, Content: []byte(c.AgentsMD)},
@@ -53,7 +53,7 @@ func renderClaude(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 		}, r.Body)
 		files = append(files, FileWrite{
 			Concept: ConceptRules,
-			Path:    filepath.Join(".claude", "rules", r.Filename+".md"),
+			Path:    filepath.Join(claudeDir, "rules", r.Filename+".md"),
 			Content: []byte(content),
 		})
 	}
@@ -68,7 +68,7 @@ func renderClaude(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 		}, skill.Body)
 		files = append(files, FileWrite{
 			Concept: ConceptSkills,
-			Path:    filepath.Join(".claude", "skills", skill.Dir, "SKILL.md"),
+			Path:    filepath.Join(claudeDir, "skills", skill.Dir, "SKILL.md"),
 			Content: []byte(content),
 		})
 	}
@@ -82,7 +82,7 @@ func renderClaude(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 		}, agent.Body)
 		files = append(files, FileWrite{
 			Concept: ConceptAgents,
-			Path:    filepath.Join(".claude", "agents", agent.Filename+".md"),
+			Path:    filepath.Join(claudeDir, "agents", agent.Filename+".md"),
 			Content: []byte(content),
 		})
 	}

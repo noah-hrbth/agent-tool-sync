@@ -36,9 +36,9 @@ func renderCopilot(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	// (.github/copilot-instructions.md at project, ~/.copilot/copilot-instructions.md
 	// at user) avoids double-loading when other adapters emit root AGENTS.md.
 	if c.AgentsMD != "" {
-		rootPath := ".github/copilot-instructions.md"
+		rootPath := copilotDirProject + "/copilot-instructions.md"
 		if scope == ScopeUser {
-			rootPath = ".copilot/copilot-instructions.md"
+			rootPath = copilotDirUser + "/copilot-instructions.md"
 		}
 		files = append(files, FileWrite{
 			Concept: ConceptRules,
@@ -49,9 +49,9 @@ func renderCopilot(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 
 	// Per-rule instructions files. Copilot's applyTo is a single glob string —
 	// brace-expand multi-path canonical Rules into one glob; omit when no paths.
-	rulesDir := filepath.Join(".github", "instructions")
+	rulesDir := filepath.Join(copilotDirProject, "instructions")
 	if scope == ScopeUser {
-		rulesDir = filepath.Join(".copilot", "instructions")
+		rulesDir = filepath.Join(copilotDirUser, "instructions")
 	}
 	for _, r := range c.Rules {
 		content := buildMDFrontmatter([]fmField{
@@ -69,9 +69,9 @@ func renderCopilot(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 	// as name to make the invariant explicit at render time. Adoption via the
 	// generic matchSkillPath branch parses name: back into Skill.Name — benign
 	// because canonical already normalizes Skill.Name == Skill.Dir on save.
-	skillsDir := filepath.Join(".github", "skills")
+	skillsDir := filepath.Join(copilotDirProject, "skills")
 	if scope == ScopeUser {
-		skillsDir = filepath.Join(".copilot", "skills")
+		skillsDir = filepath.Join(copilotDirUser, "skills")
 	}
 	for _, skill := range c.Skills {
 		content := buildMDFrontmatter([]fmField{
@@ -87,9 +87,9 @@ func renderCopilot(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 
 	// Agents. The .agent.md suffix is mandatory — Copilot renamed legacy
 	// .chatmode.md to .agent.md (custom agents). We never emit the legacy form.
-	agentsDir := filepath.Join(".github", "agents")
+	agentsDir := filepath.Join(copilotDirProject, "agents")
 	if scope == ScopeUser {
-		agentsDir = filepath.Join(".copilot", "agents")
+		agentsDir = filepath.Join(copilotDirUser, "agents")
 	}
 	for _, agent := range c.Agents {
 		content := buildMDFrontmatter([]fmField{
@@ -118,7 +118,7 @@ func renderCopilot(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 			}, cmd.Body)
 			files = append(files, FileWrite{
 				Concept: ConceptCommands,
-				Path:    filepath.Join(".github", "prompts", cmd.Filename+".prompt.md"),
+				Path:    filepath.Join(copilotDirProject, "prompts", cmd.Filename+".prompt.md"),
 				Content: []byte(content),
 			})
 		}

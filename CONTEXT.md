@@ -45,6 +45,21 @@ _Avoid_: support flag, capability
 Reverse-mapping a divergent rendered file back into the Canonical (`AdoptExternal`).
 _Avoid_: pull, import, reverse-sync
 
+**Path anchors**:
+The directory-prefix / root-file constants in `internal/tools/paths.go` — the single
+owner of every Tool's output-path vocabulary, consumed by both RenderFunc and Adopt.
+_Avoid_: path constants (informal), routes, locations
+
+**Reversibility manifest**:
+`tools.ExpectedAdoptOutcome` — declares, per (Tool, Concept, path), whether a rendered
+path is reversible, root-memory, cross-mapped to another Concept, or non-reversible.
+_Avoid_: adopt table, mapping spec
+
+**Render↔Adopt contract**:
+The drift tripwire (`internal/syncer/contract_test.go`): every rendered path must match
+its declared manifest outcome, so a render/Adopt divergence is a CI failure.
+_Avoid_: roundtrip (that is the per-tool byte test), sync test
+
 ## Relationships
 
 - A **Canonical** is rendered by each **Tool**'s **RenderFunc** into files, one per **Scope**.

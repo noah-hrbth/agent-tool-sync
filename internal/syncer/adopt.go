@@ -8,11 +8,19 @@ import (
 
 	"github.com/adrg/frontmatter"
 	"github.com/noah-hrbth/agentsync/internal/canonical"
+	"github.com/noah-hrbth/agentsync/internal/tools"
 )
 
 // AdoptExternal reads the divergent file at <workspace>/<path>, maps it back to
 // the matching canonical entity, and persists the canonical update.
 // The caller must reload canonical from disk after this returns.
+//
+// INVARIANT: the switch case order is load-bearing. Tool-specific matchers
+// (Cursor general.mdc, Cline rules/workflows, Copilot instructions/agents/
+// prompts) MUST precede the generic matchers — their paths or suffixes would
+// otherwise be mis-claimed by matchRulePath/matchAgentPath/matchCommandPath.
+// internal/syncer/contract_test.go fails if this ordering (or the shared path
+// vocabulary in internal/tools/paths.go) drifts from what render emits.
 func AdoptExternal(workspace, path string) error {
 	absPath := filepath.Join(workspace, path)
 	data, err := os.ReadFile(absPath)
@@ -22,20 +30,10 @@ func AdoptExternal(workspace, path string) error {
 	content := string(data)
 
 	switch {
-	case path == "CLAUDE.md" ||
-		path == ".claude/CLAUDE.md" ||
-		path == "AGENTS.md" ||
-		path == ".codex/AGENTS.md" ||
-		path == ".opencode/AGENTS.md" ||
-		path == ".config/opencode/AGENTS.md" ||
-		path == "GEMINI.md" ||
-		path == ".gemini/GEMINI.md" ||
-		path == ".vibe/AGENTS.md" ||
-		path == ".github/copilot-instructions.md" ||
-		path == ".copilot/copilot-instructions.md":
+	case isRootMemoryFile(path):
 		return canonical.SaveAgentsMD(workspace, content)
 
-	case path == ".cursor/rules/general.mdc":
+	case path == tools.CursorCatchAll:
 		// Strip the frontmatter wrapper added by the Cursor adapter.
 		var discard map[string]interface{}
 		rest, err := frontmatter.Parse(strings.NewReader(content), &discard)
@@ -178,16 +176,32 @@ func ruleFilename(path string) string {
 	return strings.TrimSuffix(base, ".md")
 }
 
+// isRootMemoryFile reports whether path is one of the tool root-memory files
+// that reverse to canonical AGENTS.md. The set is owned by internal/tools.
+func isRootMemoryFile(path string) bool {
+	for _, f := range tools.RootMemoryFiles() {
+		if path == f {
+			return true
+		}
+	}
+	return false
+}
+
 func matchSkillPath(path string) bool {
-	return (strings.HasPrefix(path, ".claude/skills/") ||
-		strings.HasPrefix(path, ".opencode/skills/") ||
-		strings.HasPrefix(path, ".config/opencode/skills/") ||
-		strings.HasPrefix(path, ".cline/skills/") ||
-		strings.HasPrefix(path, ".junie/skills/") ||
-		strings.HasPrefix(path, ".vibe/skills/") ||
-		strings.HasPrefix(path, ".github/skills/") ||
-		strings.HasPrefix(path, ".copilot/skills/")) &&
-		strings.HasSuffix(path, "/SKILL.md")
+	if !strings.HasSuffix(path, "/SKILL.md") {
+		return false
+	}
+	return hasAnyPrefix(path, tools.SkillDirPrefixes())
+}
+
+// hasAnyPrefix reports whether path begins with any of the prefixes.
+func hasAnyPrefix(path string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(path, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func skillDir(path string) string {
@@ -203,19 +217,11 @@ func skillDir(path string) string {
 }
 
 func matchAgentPath(path string) bool {
-	return (strings.HasPrefix(path, ".claude/agents/") ||
-		strings.HasPrefix(path, ".opencode/agents/") ||
-		strings.HasPrefix(path, ".config/opencode/agents/") ||
-		strings.HasPrefix(path, ".junie/agents/")) &&
-		strings.HasSuffix(path, ".md")
+	return strings.HasSuffix(path, ".md") && hasAnyPrefix(path, tools.AgentDirPrefixes())
 }
 
 func matchCommandPath(path string) bool {
-	return (strings.HasPrefix(path, ".claude/commands/") ||
-		strings.HasPrefix(path, ".opencode/commands/") ||
-		strings.HasPrefix(path, ".config/opencode/commands/") ||
-		strings.HasPrefix(path, ".junie/commands/")) &&
-		strings.HasSuffix(path, ".md")
+	return strings.HasSuffix(path, ".md") && hasAnyPrefix(path, tools.CommandDirPrefixes())
 }
 
 // matchClineRulePath returns true for Cline per-rule files at either scope.
