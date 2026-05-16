@@ -136,3 +136,45 @@ func TestComputeFullRegisteredAdapterSet(t *testing.T) {
 		t.Fatalf("got %v\nwant %v", got, want)
 	}
 }
+
+// TestRootSkipMapsAreEnforced pins every documented carve-out: each key in
+// rootSegmentSkips/rootFileSkips must be dropped by entryFor and must never
+// appear in the real-adapter Compute output. Adding a map entry auto-extends
+// coverage; the rationale must be non-empty.
+func TestRootSkipMapsAreEnforced(t *testing.T) {
+	if len(rootSegmentSkips) == 0 || len(rootFileSkips) == 0 {
+		t.Fatal("skip maps unexpectedly empty")
+	}
+	for seg, reason := range rootSegmentSkips {
+		if reason == "" {
+			t.Errorf("rootSegmentSkips[%q] has empty rationale", seg)
+		}
+		if e := entryFor(seg); e != "" {
+			t.Errorf("entryFor(%q) = %q, want \"\" (file form)", seg, e)
+		}
+		if e := entryFor(seg + "/child.md"); e != "" {
+			t.Errorf("entryFor(%q/...) = %q, want \"\" (dir form)", seg, e)
+		}
+	}
+	for name, reason := range rootFileSkips {
+		if reason == "" {
+			t.Errorf("rootFileSkips[%q] has empty rationale", name)
+		}
+		if e := entryFor(name); e != "" {
+			t.Errorf("entryFor(%q) = %q, want \"\"", name, e)
+		}
+	}
+	skipped := map[string]bool{}
+	for seg := range rootSegmentSkips {
+		skipped[seg] = true
+		skipped[seg+"/"] = true
+	}
+	for name := range rootFileSkips {
+		skipped[name] = true
+	}
+	for _, entry := range Compute(tools.All()) {
+		if skipped[entry] {
+			t.Errorf("Compute(tools.All()) emitted carve-out %q", entry)
+		}
+	}
+}

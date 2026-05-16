@@ -1261,7 +1261,7 @@ func validateNewName(kind fileKind, raw string, c *canonical.Canonical) (string,
 		}
 	}
 	if kind == kindRule && canonical.IsReservedRuleName(slug) {
-		return "", fmt.Errorf("'%s' is reserved (Cursor catch-all)", slug)
+		return "", fmt.Errorf("%q is a reserved rule name", slug)
 	}
 	if c != nil {
 		switch kind {

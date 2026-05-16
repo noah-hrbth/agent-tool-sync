@@ -18,17 +18,28 @@ const (
 	EndMarker   = "# END agentsync managed"
 )
 
+// rootSegmentSkips are workspace-root path segments agentsync must never add
+// to .gitignore (skipped whether they appear as a file or a dir prefix). The
+// value is the rationale — this map is the single source of truth for the
+// carve-out set; do not restate it in prose elsewhere.
+var rootSegmentSkips = map[string]string{
+	".agentsync": "agentsync's own canonical source — never derived output",
+	".github":    "shared with CI workflows that must stay tracked; the GitHub Copilot adapter writes inside it",
+}
+
+// rootFileSkips are root-level files (not dir prefixes) excluded from
+// .gitignore. The value is the rationale.
+var rootFileSkips = map[string]string{
+	"AGENTS.md": "shared human-readable spec, commonly committed",
+}
+
 // Compute renders every adapter against a stub canonical at ScopeProject and
 // returns a sorted, deduplicated list of gitignore entries:
 //   - directories appear as "<seg>/" with a trailing slash
 //   - top-level files appear as bare names
 //
-// `.agentsync` is always excluded (defensive — no adapter should emit it).
-// `AGENTS.md` at the workspace root is also excluded per the user-confirmed
-// carve-out (it is a shared human-readable spec, commonly committed).
-// `.github` is excluded because it is shared with CI workflows that MUST stay
-// tracked; the GitHub Copilot adapter writes inside `.github/` for instructions,
-// skills, agents, and prompts.
+// Workspace-root carve-outs that are never gitignored are defined by
+// rootSegmentSkips and rootFileSkips (see their docs for the rationale).
 func Compute(adapters []tools.Tool) []string {
 	stub := stubCanonical()
 	seen := make(map[string]struct{}, 32)
@@ -59,11 +70,16 @@ func entryFor(path string) string {
 		return ""
 	}
 	seg, _, hasSlash := strings.Cut(slash, "/")
-	if seg == "" || seg == ".agentsync" || seg == ".github" {
+	if seg == "" {
 		return ""
 	}
-	if !hasSlash && seg == "AGENTS.md" {
+	if _, ok := rootSegmentSkips[seg]; ok {
 		return ""
+	}
+	if !hasSlash {
+		if _, ok := rootFileSkips[seg]; ok {
+			return ""
+		}
 	}
 	if hasSlash {
 		return seg + "/"

@@ -85,7 +85,7 @@ func loadRules(base string) ([]*Rule, error) {
 
 		filename := strings.TrimSuffix(entry.Name(), ".md")
 		if IsReservedRuleName(filename) {
-			return nil, fmt.Errorf("reserved rule name 'general' — used by Cursor's catch-all .cursor/rules/general.mdc")
+			return nil, fmt.Errorf("reserved rule name %q — %s", filename, ReservedRuleReason(filename))
 		}
 
 		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
@@ -222,10 +222,4 @@ func loadCommands(base string) ([]*Command, error) {
 		return []*Command{}, nil
 	}
 	return commands, nil
-}
-
-// IsReservedRuleName reports whether slug is a reserved rule filename.
-// "general" collides with Cursor's catch-all .cursor/rules/general.mdc.
-func IsReservedRuleName(slug string) bool {
-	return slug == "general"
 }
