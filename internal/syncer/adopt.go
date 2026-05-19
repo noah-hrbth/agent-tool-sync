@@ -2,12 +2,12 @@ package syncer
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/adrg/frontmatter"
 	"github.com/noah-hrbth/agentsync/internal/canonical"
+	"github.com/noah-hrbth/agentsync/internal/safepath"
 	"github.com/noah-hrbth/agentsync/internal/tools"
 )
 
@@ -22,8 +22,7 @@ import (
 // internal/syncer/contract_test.go fails if this ordering (or the shared path
 // vocabulary in internal/tools/paths.go) drifts from what render emits.
 func AdoptExternal(workspace, path string) error {
-	absPath := filepath.Join(workspace, path)
-	data, err := os.ReadFile(absPath)
+	data, err := safepath.ReadFile(workspace, path)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
 	}

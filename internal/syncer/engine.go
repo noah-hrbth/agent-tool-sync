@@ -3,10 +3,10 @@ package syncer
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/noah-hrbth/agentsync/internal/canonical"
 	"github.com/noah-hrbth/agentsync/internal/config"
+	"github.com/noah-hrbth/agentsync/internal/safepath"
 	"github.com/noah-hrbth/agentsync/internal/tools"
 )
 
@@ -71,7 +71,7 @@ func Status(workspace string, c *canonical.Canonical, adapters []tools.Tool, cfg
 			return nil, fmt.Errorf("render %s: %w", a.Meta.Name, err)
 		}
 		for _, fw := range writes {
-			diskHash, err := hashFile(filepath.Join(workspace, fw.Path))
+			diskHash, err := hashFileSafe(workspace, fw.Path)
 			if err != nil {
 				return nil, err
 			}
@@ -147,12 +147,7 @@ func RunSync(workspace string, c *canonical.Canonical, adapters []tools.Tool, cf
 				result.Skipped = append(result.Skipped, SyncedFile{ToolName: a.Meta.Name, Concept: fw.Concept, Path: fw.Path})
 				continue
 			}
-			absPath := filepath.Join(workspace, fw.Path)
-			if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
-				result.Errors = append(result.Errors, err)
-				continue
-			}
-			if err := os.WriteFile(absPath, fw.Content, 0o644); err != nil {
+			if err := safepath.WriteFile(workspace, fw.Path, fw.Content, 0o644); err != nil {
 				result.Errors = append(result.Errors, err)
 				continue
 			}
@@ -167,8 +162,7 @@ func RunSync(workspace string, c *canonical.Canonical, adapters []tools.Tool, cf
 		if allRenderedPaths[snapPath] {
 			continue
 		}
-		absPath := filepath.Join(workspace, snapPath)
-		diskHash, err := hashFile(absPath)
+		diskHash, err := hashFileSafe(workspace, snapPath)
 		if err != nil {
 			result.Errors = append(result.Errors, err)
 			delete(snap.Files, snapPath)
@@ -181,7 +175,7 @@ func RunSync(workspace string, c *canonical.Canonical, adapters []tools.Tool, cf
 		}
 		if diskHash == snapHash {
 			// Safe to delete: matches last-synced content.
-			if err := os.Remove(absPath); err != nil && !os.IsNotExist(err) {
+			if err := safepath.Remove(workspace, snapPath); err != nil && !os.IsNotExist(err) {
 				result.Errors = append(result.Errors, err)
 			}
 			delete(snap.Files, snapPath)

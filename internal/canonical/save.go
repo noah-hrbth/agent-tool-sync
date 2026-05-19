@@ -2,20 +2,17 @@ package canonical
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/goccy/go-yaml"
+
+	"github.com/noah-hrbth/agentsync/internal/safepath"
 )
 
 // SaveAgentsMD writes content to <workspace>/.agentsync/AGENTS.md.
 func SaveAgentsMD(workspace, content string) error {
-	path := filepath.Join(workspace, ".agentsync", "AGENTS.md")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create dir: %w", err)
-	}
-	return os.WriteFile(path, []byte(content), 0o644)
+	return safepath.WriteFile(workspace, filepath.Join(".agentsync", "AGENTS.md"), []byte(content), 0o644)
 }
 
 // SaveSkill writes a skill's SKILL.md (frontmatter + body) to
@@ -25,11 +22,7 @@ func SaveSkill(workspace string, s *Skill) error {
 	if err != nil {
 		return fmt.Errorf("marshal skill %s: %w", s.Dir, err)
 	}
-	path := filepath.Join(workspace, ".agentsync", "skills", s.Dir, "SKILL.md")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create dir: %w", err)
-	}
-	return os.WriteFile(path, []byte(out), 0o644)
+	return safepath.WriteFile(workspace, filepath.Join(".agentsync", "skills", s.Dir, "SKILL.md"), []byte(out), 0o644)
 }
 
 // SaveAgent writes an agent file to <workspace>/.agentsync/agents/<filename>.md.
@@ -38,11 +31,7 @@ func SaveAgent(workspace string, a *Agent) error {
 	if err != nil {
 		return fmt.Errorf("marshal agent %s: %w", a.Filename, err)
 	}
-	path := filepath.Join(workspace, ".agentsync", "agents", a.Filename+".md")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create dir: %w", err)
-	}
-	return os.WriteFile(path, []byte(out), 0o644)
+	return safepath.WriteFile(workspace, filepath.Join(".agentsync", "agents", a.Filename+".md"), []byte(out), 0o644)
 }
 
 // SaveCommand writes a command file to <workspace>/.agentsync/commands/<filename>.md.
@@ -51,11 +40,7 @@ func SaveCommand(workspace string, cmd *Command) error {
 	if err != nil {
 		return fmt.Errorf("marshal command %s: %w", cmd.Filename, err)
 	}
-	path := filepath.Join(workspace, ".agentsync", "commands", cmd.Filename+".md")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create dir: %w", err)
-	}
-	return os.WriteFile(path, []byte(out), 0o644)
+	return safepath.WriteFile(workspace, filepath.Join(".agentsync", "commands", cmd.Filename+".md"), []byte(out), 0o644)
 }
 
 // SaveRule writes a rule file to <workspace>/.agentsync/rules/<filename>.md.
@@ -64,31 +49,27 @@ func SaveRule(workspace string, r *Rule) error {
 	if err != nil {
 		return fmt.Errorf("marshal rule %s: %w", r.Filename, err)
 	}
-	path := filepath.Join(workspace, ".agentsync", "rules", r.Filename+".md")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create dir: %w", err)
-	}
-	return os.WriteFile(path, []byte(out), 0o644)
+	return safepath.WriteFile(workspace, filepath.Join(".agentsync", "rules", r.Filename+".md"), []byte(out), 0o644)
 }
 
 // DeleteRule removes .agentsync/rules/<slug>.md.
 func DeleteRule(workspace, slug string) error {
-	return os.Remove(filepath.Join(workspace, ".agentsync", "rules", slug+".md"))
+	return safepath.Remove(workspace, filepath.Join(".agentsync", "rules", slug+".md"))
 }
 
 // DeleteSkill removes the entire .agentsync/skills/<dir>/ folder.
 func DeleteSkill(workspace, dir string) error {
-	return os.RemoveAll(filepath.Join(workspace, ".agentsync", "skills", dir))
+	return safepath.RemoveAll(workspace, filepath.Join(".agentsync", "skills", dir))
 }
 
 // DeleteAgent removes .agentsync/agents/<slug>.md.
 func DeleteAgent(workspace, slug string) error {
-	return os.Remove(filepath.Join(workspace, ".agentsync", "agents", slug+".md"))
+	return safepath.Remove(workspace, filepath.Join(".agentsync", "agents", slug+".md"))
 }
 
 // DeleteCommand removes .agentsync/commands/<slug>.md.
 func DeleteCommand(workspace, slug string) error {
-	return os.Remove(filepath.Join(workspace, ".agentsync", "commands", slug+".md"))
+	return safepath.Remove(workspace, filepath.Join(".agentsync", "commands", slug+".md"))
 }
 
 // CreateEmptyRule writes a minimal rule file at .agentsync/rules/<slug>.md

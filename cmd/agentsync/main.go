@@ -3,12 +3,14 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
 	"github.com/noah-hrbth/agentsync/internal/canonical"
 	"github.com/noah-hrbth/agentsync/internal/config"
+	"github.com/noah-hrbth/agentsync/internal/safepath"
 	"github.com/noah-hrbth/agentsync/internal/syncer"
 	"github.com/noah-hrbth/agentsync/internal/tools"
 	"github.com/noah-hrbth/agentsync/internal/tui"
@@ -74,18 +76,32 @@ func resolveBase() (string, tools.Scope, error) {
 	if globalFlag && workspace != "" {
 		return "", tools.ScopeProject, fmt.Errorf("--global and --workspace are mutually exclusive")
 	}
-	if globalFlag {
+
+	ws := workspace
+	scope := tools.ScopeProject
+	switch {
+	case globalFlag:
+		scope = tools.ScopeUser
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return "", tools.ScopeUser, err
+			return "", scope, err
 		}
-		return home, tools.ScopeUser, nil
+		ws = home
+	case workspace == "":
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "", scope, err
+		}
+		ws = cwd
 	}
-	if workspace != "" {
-		return workspace, tools.ScopeProject, nil
+
+	// resolve the workspace root once so safepath can forbid symlink crossings
+	// strictly below it without re-resolving on every write
+	resolved, err := filepath.EvalSymlinks(ws)
+	if err != nil {
+		return "", scope, fmt.Errorf("resolve workspace %q: %w", ws, err)
 	}
-	cwd, err := os.Getwd()
-	return cwd, tools.ScopeProject, err
+	return resolved, scope, nil
 }
 
 func loadState(ws string) (*canonical.Canonical, *config.Config, error) {
@@ -106,22 +122,21 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	base := ws + "/.agentsync"
-	for _, dir := range []string{base, base + "/skills", base + "/agents", base + "/commands", base + "/rules", base + "/.state"} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+	for _, sub := range []string{".", "skills", "agents", "commands", "rules", ".state"} {
+		if err := safepath.MkdirAll(ws, filepath.Join(".agentsync", sub), 0o755); err != nil {
 			return err
 		}
 	}
 
-	agentsPath := base + "/AGENTS.md"
-	if _, err := os.Stat(agentsPath); os.IsNotExist(err) {
+	agentsRel := filepath.Join(".agentsync", "AGENTS.md")
+	if _, err := os.Stat(filepath.Join(ws, agentsRel)); os.IsNotExist(err) {
 		starter := "# Project Rules\n\nAdd your AI agent instructions here.\n" +
 			"This file is synced to all enabled AI tools by agentsync.\n"
 		if scope == tools.ScopeUser {
 			starter = "# User Rules\n\nPersonal AI agent instructions applied across all your projects.\n" +
 				"This file is synced to user-level tool config dirs (~/.claude, ~/.codex, etc.) by agentsync.\n"
 		}
-		if err := os.WriteFile(agentsPath, []byte(starter), 0o644); err != nil {
+		if err := safepath.WriteFile(ws, agentsRel, []byte(starter), 0o644); err != nil {
 			return err
 		}
 	}

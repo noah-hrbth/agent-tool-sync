@@ -7,13 +7,18 @@ import (
 	"strings"
 
 	"github.com/adrg/frontmatter"
+
+	"github.com/noah-hrbth/agentsync/internal/safepath"
 )
+
+// canonicalRoot is the workspace-relative root of all canonical content.
+const canonicalRoot = ".agentsync"
 
 // Load reads the .agentsync/ directory under workspace and returns a populated Canonical.
 // Missing AGENTS.md or missing skills/agents/commands/rules directories are not errors.
+// Reads are routed through safepath so a symlinked .agentsync entry cannot
+// exfiltrate file content from outside the workspace into rendered output.
 func Load(workspace string) (*Canonical, error) {
-	base := filepath.Join(workspace, ".agentsync")
-
 	c := &Canonical{
 		Workspace: workspace,
 		Rules:     []*Rule{},
@@ -22,31 +27,31 @@ func Load(workspace string) (*Canonical, error) {
 		Commands:  []*Command{},
 	}
 
-	agentsMD, err := loadAgentsMD(base)
+	agentsMD, err := loadAgentsMD(workspace)
 	if err != nil {
 		return nil, fmt.Errorf("load rules: %w", err)
 	}
 	c.AgentsMD = agentsMD
 
-	rules, err := loadRules(base)
+	rules, err := loadRules(workspace)
 	if err != nil {
 		return nil, fmt.Errorf("load rules folder: %w", err)
 	}
 	c.Rules = rules
 
-	skills, err := loadSkills(base)
+	skills, err := loadSkills(workspace)
 	if err != nil {
 		return nil, fmt.Errorf("load skills: %w", err)
 	}
 	c.Skills = skills
 
-	agents, err := loadAgents(base)
+	agents, err := loadAgents(workspace)
 	if err != nil {
 		return nil, fmt.Errorf("load agents: %w", err)
 	}
 	c.Agents = agents
 
-	commands, err := loadCommands(base)
+	commands, err := loadCommands(workspace)
 	if err != nil {
 		return nil, fmt.Errorf("load commands: %w", err)
 	}
@@ -55,9 +60,25 @@ func Load(workspace string) (*Canonical, error) {
 	return c, nil
 }
 
-func loadAgentsMD(base string) (string, error) {
-	path := filepath.Join(base, "AGENTS.md")
-	data, err := os.ReadFile(path)
+// safeReadDir validates the workspace-relative dir (rejecting a symlinked
+// component) and lists it. A missing dir is not an error.
+func safeReadDir(workspace, rel string) ([]os.DirEntry, error) {
+	abs, err := safepath.Resolve(workspace, rel)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(abs)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+func loadAgentsMD(workspace string) (string, error) {
+	data, err := safepath.ReadFile(workspace, filepath.Join(canonicalRoot, "AGENTS.md"))
 	if os.IsNotExist(err) {
 		return "", nil
 	}
@@ -67,12 +88,9 @@ func loadAgentsMD(base string) (string, error) {
 	return string(data), nil
 }
 
-func loadRules(base string) ([]*Rule, error) {
-	dir := filepath.Join(base, "rules")
-	entries, err := os.ReadDir(dir)
-	if os.IsNotExist(err) {
-		return []*Rule{}, nil
-	}
+func loadRules(workspace string) ([]*Rule, error) {
+	relDir := filepath.Join(canonicalRoot, "rules")
+	entries, err := safeReadDir(workspace, relDir)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +106,7 @@ func loadRules(base string) ([]*Rule, error) {
 			return nil, fmt.Errorf("reserved rule name %q — %s", filename, ReservedRuleReason(filename))
 		}
 
-		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		data, err := safepath.ReadFile(workspace, filepath.Join(relDir, entry.Name()))
 		if err != nil {
 			return nil, fmt.Errorf("read rule %s: %w", entry.Name(), err)
 		}
@@ -109,12 +127,9 @@ func loadRules(base string) ([]*Rule, error) {
 	return rules, nil
 }
 
-func loadSkills(base string) ([]*Skill, error) {
-	dir := filepath.Join(base, "skills")
-	entries, err := os.ReadDir(dir)
-	if os.IsNotExist(err) {
-		return []*Skill{}, nil
-	}
+func loadSkills(workspace string) ([]*Skill, error) {
+	relDir := filepath.Join(canonicalRoot, "skills")
+	entries, err := safeReadDir(workspace, relDir)
 	if err != nil {
 		return nil, err
 	}
@@ -125,8 +140,7 @@ func loadSkills(base string) ([]*Skill, error) {
 			continue
 		}
 
-		skillPath := filepath.Join(dir, entry.Name(), "SKILL.md")
-		data, err := os.ReadFile(skillPath)
+		data, err := safepath.ReadFile(workspace, filepath.Join(relDir, entry.Name(), "SKILL.md"))
 		if os.IsNotExist(err) {
 			continue
 		}
@@ -150,12 +164,9 @@ func loadSkills(base string) ([]*Skill, error) {
 	return skills, nil
 }
 
-func loadAgents(base string) ([]*Agent, error) {
-	dir := filepath.Join(base, "agents")
-	entries, err := os.ReadDir(dir)
-	if os.IsNotExist(err) {
-		return []*Agent{}, nil
-	}
+func loadAgents(workspace string) ([]*Agent, error) {
+	relDir := filepath.Join(canonicalRoot, "agents")
+	entries, err := safeReadDir(workspace, relDir)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +177,7 @@ func loadAgents(base string) ([]*Agent, error) {
 			continue
 		}
 
-		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		data, err := safepath.ReadFile(workspace, filepath.Join(relDir, entry.Name()))
 		if err != nil {
 			return nil, fmt.Errorf("read agent %s: %w", entry.Name(), err)
 		}
@@ -187,12 +198,9 @@ func loadAgents(base string) ([]*Agent, error) {
 	return agents, nil
 }
 
-func loadCommands(base string) ([]*Command, error) {
-	dir := filepath.Join(base, "commands")
-	entries, err := os.ReadDir(dir)
-	if os.IsNotExist(err) {
-		return []*Command{}, nil
-	}
+func loadCommands(workspace string) ([]*Command, error) {
+	relDir := filepath.Join(canonicalRoot, "commands")
+	entries, err := safeReadDir(workspace, relDir)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +211,7 @@ func loadCommands(base string) ([]*Command, error) {
 			continue
 		}
 
-		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		data, err := safepath.ReadFile(workspace, filepath.Join(relDir, entry.Name()))
 		if err != nil {
 			return nil, fmt.Errorf("read command %s: %w", entry.Name(), err)
 		}

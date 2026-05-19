@@ -7,13 +7,14 @@ import (
 	"path/filepath"
 
 	"github.com/goccy/go-yaml"
+
+	"github.com/noah-hrbth/agentsync/internal/safepath"
 )
 
 // Load reads .agentsync/config.yaml from workspace. If the file is missing,
 // it returns Default(toolNames) without error.
 func Load(workspace string, toolNames []string) (*Config, error) {
-	path := filepath.Join(workspace, ".agentsync", "config.yaml")
-	data, err := os.ReadFile(path)
+	data, err := safepath.ReadFile(workspace, filepath.Join(".agentsync", "config.yaml"))
 	if errors.Is(err, os.ErrNotExist) {
 		return Default(toolNames), nil
 	}
@@ -30,18 +31,12 @@ func Load(workspace string, toolNames []string) (*Config, error) {
 
 // Save writes cfg to <workspace>/.agentsync/config.yaml, creating the directory if needed.
 func Save(workspace string, cfg *Config) error {
-	dir := filepath.Join(workspace, ".agentsync")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create dir: %w", err)
-	}
-
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
 
-	path := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := safepath.WriteFile(workspace, filepath.Join(".agentsync", "config.yaml"), data, 0o644); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
 	return nil

@@ -2,10 +2,14 @@ package gitignore
 
 import (
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/noah-hrbth/agentsync/internal/safepath"
 )
+
+// gitignoreRel is the workspace-relative path of the managed .gitignore.
+const gitignoreRel = ".gitignore"
 
 // blockRegex matches a single agentsync-managed block including its trailing
 // newline (if present). Multiple non-overlapping matches are stripped together.
@@ -32,7 +36,7 @@ func Update(workspace string, entries []string) error {
 	} else {
 		content = stripped + "\n\n" + block
 	}
-	return writeAtomic(gitignorePath(workspace), content)
+	return writeAtomic(workspace, content)
 }
 
 // Remove deletes the agentsync-managed block from <workspace>/.gitignore,
@@ -46,15 +50,11 @@ func Remove(workspace string) error {
 	if !strings.Contains(existing, BeginMarker) {
 		return nil
 	}
-	return writeAtomic(gitignorePath(workspace), stripBlocks(existing))
-}
-
-func gitignorePath(workspace string) string {
-	return filepath.Join(workspace, ".gitignore")
+	return writeAtomic(workspace, stripBlocks(existing))
 }
 
 func readGitignoreFile(workspace string) (string, error) {
-	b, err := os.ReadFile(gitignorePath(workspace))
+	b, err := safepath.ReadFile(workspace, gitignoreRel)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil
@@ -82,10 +82,10 @@ func stripBlocks(content string) string {
 	return multiBlankRegex.ReplaceAllString(stripped, "\n\n")
 }
 
-func writeAtomic(path, content string) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+func writeAtomic(workspace, content string) error {
+	tmpRel := gitignoreRel + ".tmp"
+	if err := safepath.WriteFile(workspace, tmpRel, []byte(content), 0o644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	return safepath.Rename(workspace, tmpRel, gitignoreRel)
 }
