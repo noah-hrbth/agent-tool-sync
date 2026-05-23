@@ -96,7 +96,8 @@ Zed reads its rules file from the workspace root, so `.rules` lands there instea
 │   └── <name>.md           # frontmatter + rule body (per-file where supported)
 ├── skills/
 │   └── <name>/
-│       └── SKILL.md        # frontmatter + instructions
+│       ├── SKILL.md        # the skill manifest (frontmatter + instructions)
+│       └── <doc>.md        # optional extra docs, any depth (e.g. reference.md, examples/x.md)
 ├── agents/
 │   └── <name>.md           # frontmatter + system prompt
 ├── commands/
@@ -120,6 +121,8 @@ paths: [src/**/*.ts]          # optional — Cursor: auto-activate via globs; Cl
 ---
 Rule body in markdown.
 ```
+
+A skill is a folder: the `SKILL.md` **manifest** plus any number of additional **`.md` docs** (`reference.md`, `examples/x.md`, …) at any depth. agentsync syncs the manifest and every `.md` doc — preserving subfolders — to each tool's `skills/<dir>/`. Non-`.md` files (scripts, etc.) are deliberately **not** synced; agentsync leaves them untouched.
 
 **Skills** (`skills/<name>/SKILL.md`):
 

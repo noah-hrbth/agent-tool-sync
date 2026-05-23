@@ -90,7 +90,8 @@ func TestBuildFileItemsOrder(t *testing.T) {
 	}
 	items := buildFileItems(c)
 
-	wantKinds := []fileKind{kindAgentsMD, kindSkill, kindAgent, kindCommand, kindRule}
+	// One skill (no docs) expands to a dir node + manifest row (both kindSkill).
+	wantKinds := []fileKind{kindAgentsMD, kindSkill, kindSkill, kindAgent, kindCommand, kindRule}
 	if len(items) != len(wantKinds) {
 		t.Fatalf("buildFileItems: want %d items, got %d", len(wantKinds), len(items))
 	}
@@ -137,20 +138,202 @@ func TestBuildFileItemsMixedGroups(t *testing.T) {
 		Skills: []*canonical.Skill{{Dir: "alpha", Name: "alpha", Description: "d"}},
 	}
 	items := buildFileItems(c)
-	// AGENTS.md, skill, placeholder agent, placeholder command, placeholder rule
-	if got := len(items); got != 5 {
-		t.Fatalf("want 5 items, got %d", got)
+	// AGENTS.md, skill dir node, skill manifest, placeholder agent/command/rule
+	if got := len(items); got != 6 {
+		t.Fatalf("want 6 items, got %d", got)
 	}
-	if items[1].placeholder {
-		t.Error("real skill row should not be placeholder")
+	if !items[1].isSkillDir || items[1].skill == nil || items[1].skill.Dir != "alpha" {
+		t.Errorf("items[1] should be the 'alpha' dir node, got %+v", items[1])
 	}
-	if items[1].skill == nil || items[1].skill.Dir != "alpha" {
-		t.Errorf("items[1] should reference skill 'alpha', got %+v", items[1])
+	if items[2].isSkillDir || items[2].skillDoc != "" || items[2].skill == nil {
+		t.Errorf("items[2] should be the manifest row, got %+v", items[2])
 	}
-	for _, idx := range []int{2, 3, 4} {
+	for _, idx := range []int{3, 4, 5} {
 		if !items[idx].placeholder {
 			t.Errorf("items[%d] (%s) should be placeholder", idx, items[idx].label)
 		}
+	}
+}
+
+func TestBuildFileItemsSkillTree(t *testing.T) {
+	// Arrange: a skill with a sibling doc and a nested doc.
+	c := &canonical.Canonical{
+		Skills: []*canonical.Skill{{
+			Dir: "pdf-tools", Name: "pdf-tools",
+			Docs: []canonical.SkillDoc{
+				{RelPath: "reference.md", Content: "r"},
+				{RelPath: "examples/invoice.md", Content: "i"},
+			},
+		}},
+	}
+
+	// Act
+	items := buildFileItems(c)
+
+	// Assert: dir node, manifest (pinned first), then docs in order.
+	// items[0] is AGENTS.md.
+	dirNode := items[1]
+	if !dirNode.isSkillDir || dirNode.skill.Dir != "pdf-tools" {
+		t.Fatalf("items[1] should be the pdf-tools dir node, got %+v", dirNode)
+	}
+	manifest := items[2]
+	if manifest.isSkillDir || manifest.skillDoc != "" {
+		t.Fatalf("items[2] should be the manifest, got %+v", manifest)
+	}
+	// Files come before subdir nodes; nested docs sit under a subdir node.
+	if items[3].skillDoc != "reference.md" {
+		t.Errorf("items[3] should be reference.md, got %q", items[3].skillDoc)
+	}
+	if items[4].skillSubdir != "examples" || items[4].label != "examples/" {
+		t.Errorf("items[4] should be the examples/ subdir node, got %+v", items[4])
+	}
+	if items[5].skillDoc != "examples/invoice.md" || items[5].label != "invoice.md" {
+		t.Errorf("items[5] should be examples/invoice.md (basename label), got %+v", items[5])
+	}
+}
+
+func TestBuildFileItemsLabelsOmitFolderPrefix(t *testing.T) {
+	// Group headers already name the concept, so rows show just the filename.
+	c := &canonical.Canonical{
+		Agents:   []*canonical.Agent{{Filename: "explorer", Name: "explorer"}},
+		Commands: []*canonical.Command{{Filename: "commit"}},
+		Rules:    []*canonical.Rule{{Filename: "style-guide"}},
+	}
+	items := buildFileItems(c)
+
+	want := map[fileKind]string{
+		kindAgent:   "explorer.md",
+		kindCommand: "commit.md",
+		kindRule:    "style-guide.md",
+	}
+	for _, f := range items {
+		if f.placeholder {
+			continue
+		}
+		if w, ok := want[f.kind]; ok {
+			if f.label != w {
+				t.Errorf("kind %d label = %q, want %q", f.kind, f.label, w)
+			}
+		}
+	}
+}
+
+func TestBuildFileItemsSubdirIndentation(t *testing.T) {
+	c := &canonical.Canonical{
+		Skills: []*canonical.Skill{{
+			Dir: "pdf-tools", Name: "pdf-tools",
+			Docs: []canonical.SkillDoc{{RelPath: "tests/nummer1.md"}},
+		}},
+	}
+	items := buildFileItems(c)
+
+	var subNode, leaf *fileItem
+	for i := range items {
+		if items[i].skillSubdir == "tests" {
+			subNode = &items[i]
+		}
+		if items[i].skillDoc == "tests/nummer1.md" {
+			leaf = &items[i]
+		}
+	}
+	if subNode == nil || leaf == nil {
+		t.Fatalf("expected a tests/ subdir node and a nested doc; items=%+v", items)
+	}
+	if len(rowIndent(*leaf)) <= len(rowIndent(*subNode)) {
+		t.Errorf("nested doc (%q) should indent deeper than its subdir node (%q)",
+			rowIndent(*leaf), rowIndent(*subNode))
+	}
+}
+
+func TestAddDocToFocusedSubdir(t *testing.T) {
+	ws := seedSkillWorkspace(t)
+	if err := canonical.SaveSkillDoc(ws, "pdf-tools", "tests/nummer1.md", "x\n"); err != nil {
+		t.Fatal(err)
+	}
+	m := newTestModel(t, ws)
+	idx := -1
+	for i, f := range m.files {
+		if f.skillDoc == "tests/nummer1.md" {
+			idx = i
+		}
+	}
+	if idx < 0 {
+		t.Fatal("tests/nummer1.md row not found")
+	}
+	m.fileIdx = idx
+
+	var tm tea.Model = m
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("nummer2.md")})
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if _, err := os.Stat(filepath.Join(ws, ".agentsync", "skills", "pdf-tools", "tests", "nummer2.md")); err != nil {
+		t.Errorf("add-doc should create under the focused subdir tests/: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".agentsync", "skills", "pdf-tools", "nummer2.md")); !os.IsNotExist(err) {
+		t.Error("add-doc must not create at skill root when focused on a subdir")
+	}
+}
+
+func TestDeleteSubdirNodeRemovesFolder(t *testing.T) {
+	ws := seedSkillWorkspace(t)
+	if err := canonical.SaveSkillDoc(ws, "pdf-tools", "tests/nummer1.md", "x\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := canonical.SaveSkillDoc(ws, "pdf-tools", "tests/nummer2.md", "y\n"); err != nil {
+		t.Fatal(err)
+	}
+	m := newTestModel(t, ws)
+	idx := -1
+	for i, f := range m.files {
+		if f.skillSubdir == "tests" {
+			idx = i
+		}
+	}
+	if idx < 0 {
+		t.Fatal("tests/ subdir node not found")
+	}
+	m.deleteTarget = idx
+
+	_, _ = m.confirmDelete()
+
+	if _, err := os.Stat(filepath.Join(ws, ".agentsync", "skills", "pdf-tools", "tests")); !os.IsNotExist(err) {
+		t.Error("subdir node delete should remove the folder")
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".agentsync", "skills", "pdf-tools", "SKILL.md")); err != nil {
+		t.Error("manifest must survive subdir delete")
+	}
+}
+
+func TestMatchesFileItemSkillManifestAndDoc(t *testing.T) {
+	skill := &canonical.Skill{Dir: "pdf-tools"}
+	dirNode := fileItem{kind: kindSkill, skill: skill, isSkillDir: true}
+	manifest := fileItem{kind: kindSkill, skill: skill}
+	doc := fileItem{kind: kindSkill, skill: skill, skillDoc: "reference.md"}
+
+	if !matchesFileItem(manifest, ".claude/skills/pdf-tools/SKILL.md") {
+		t.Error("manifest row should match its SKILL.md path")
+	}
+	if matchesFileItem(manifest, ".claude/skills/pdf-tools/reference.md") {
+		t.Error("manifest row must not match a doc path")
+	}
+	if !matchesFileItem(doc, ".claude/skills/pdf-tools/reference.md") {
+		t.Error("doc row should match its doc path")
+	}
+	if matchesFileItem(doc, ".claude/skills/pdf-tools/SKILL.md") {
+		t.Error("doc row must not match the manifest path")
+	}
+	// Dir node rolls up the whole skill (manifest + docs).
+	if !matchesFileItem(dirNode, ".claude/skills/pdf-tools/SKILL.md") ||
+		!matchesFileItem(dirNode, ".claude/skills/pdf-tools/reference.md") {
+		t.Error("dir node should match every file under the skill")
+	}
+}
+
+func TestMatchesFileItemSkillNoPartialDirCollision(t *testing.T) {
+	manifest := fileItem{kind: kindSkill, skill: &canonical.Skill{Dir: "pdf-tools"}}
+	if matchesFileItem(manifest, ".claude/skills/x-pdf-tools/SKILL.md") {
+		t.Error("pdf-tools manifest must not match x-pdf-tools paths")
 	}
 }
 
@@ -204,6 +387,129 @@ func TestValidateNewName(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// seedSkillWorkspace writes a skill (manifest + one doc) so model tests can
+// exercise the skill tree. Returns the workspace root.
+func seedSkillWorkspace(t *testing.T) string {
+	t.Helper()
+	ws := t.TempDir()
+	base := filepath.Join(ws, ".agentsync", "skills", "pdf-tools")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(base, "SKILL.md"), []byte("---\nname: pdf-tools\n---\n# manifest\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(base, "reference.md"), []byte("# reference\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws, ".agentsync", "AGENTS.md"), []byte("# rules\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return ws
+}
+
+// Row layout for seedSkillWorkspace: 0 AGENTS.md, 1 dir node, 2 SKILL.md, 3 reference.md.
+
+func TestAddDocKeyCreatesDocUnderSkill(t *testing.T) {
+	ws := seedSkillWorkspace(t)
+	m := newTestModel(t, ws)
+	m.fileIdx = 2 // SKILL.md manifest row
+
+	var tm tea.Model = m
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	if !tm.(model).inputting {
+		t.Fatal("pressing 'a' on a skill row should open the add-doc input")
+	}
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("docs/test.md")})
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if _, err := os.Stat(filepath.Join(ws, ".agentsync", "skills", "pdf-tools", "docs", "test.md")); err != nil {
+		t.Errorf("add-doc did not create the doc: %v", err)
+	}
+}
+
+func TestAddDocRejectsNonMarkdownName(t *testing.T) {
+	ws := seedSkillWorkspace(t)
+	m := newTestModel(t, ws)
+	m.fileIdx = 2
+
+	var tm tea.Model = m
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("notes.txt")})
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if tm.(model).inputErr == "" {
+		t.Error("non-.md doc name should be rejected with an inputErr")
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".agentsync", "skills", "pdf-tools", "notes.txt")); !os.IsNotExist(err) {
+		t.Error("invalid doc must not be created")
+	}
+}
+
+func TestSaveDocRowWritesDoc(t *testing.T) {
+	ws := seedSkillWorkspace(t)
+	m := newTestModel(t, ws)
+	m.fileIdx = 3 // reference.md doc row
+
+	if err := m.saveCurrentFile("# edited reference\n"); err != nil {
+		t.Fatalf("saveCurrentFile: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(ws, ".agentsync", "skills", "pdf-tools", "reference.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "# edited reference\n" {
+		t.Errorf("doc content = %q, want edited", got)
+	}
+	man, _ := os.ReadFile(filepath.Join(ws, ".agentsync", "skills", "pdf-tools", "SKILL.md"))
+	if !strings.Contains(string(man), "manifest") {
+		t.Errorf("manifest must be unchanged by a doc save, got %q", man)
+	}
+}
+
+func TestDeleteDocRowDeletesOnlyFile(t *testing.T) {
+	ws := seedSkillWorkspace(t)
+	m := newTestModel(t, ws)
+	m.deleteTarget = 3 // reference.md doc row
+
+	if _, _ = m.confirmDelete(); false {
+		t.Fatal("unreachable")
+	}
+
+	if _, err := os.Stat(filepath.Join(ws, ".agentsync", "skills", "pdf-tools", "reference.md")); !os.IsNotExist(err) {
+		t.Error("doc row delete should remove the doc")
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".agentsync", "skills", "pdf-tools", "SKILL.md")); err != nil {
+		t.Error("manifest must survive a doc delete")
+	}
+}
+
+func TestDeleteSkillDirNodeDeletesWholeSkill(t *testing.T) {
+	ws := seedSkillWorkspace(t)
+	m := newTestModel(t, ws)
+	m.deleteTarget = 1 // dir node
+
+	_, _ = m.confirmDelete()
+
+	if _, err := os.Stat(filepath.Join(ws, ".agentsync", "skills", "pdf-tools")); !os.IsNotExist(err) {
+		t.Error("dir node delete should remove the whole skill folder")
+	}
+}
+
+func TestPreviewFollowsCursor(t *testing.T) {
+	ws := seedSkillWorkspace(t)
+	m := newTestModel(t, ws) // idx 0 = AGENTS.md, idx 1 = pdf-tools dir node
+
+	var tm tea.Model = m
+	tm, _ = tm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")}) // move to dir node
+
+	got := tm.(model).preview.View()
+	if !strings.Contains(got, "skill folder") {
+		t.Errorf("preview should follow the cursor to the skill dir node; got %q", got)
 	}
 }
 

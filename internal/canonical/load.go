@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/adrg/frontmatter"
@@ -155,6 +156,13 @@ func loadSkills(workspace string) ([]*Skill, error) {
 		}
 		s.Dir = entry.Name()
 		s.Body = string(body)
+
+		docs, err := loadSkillDocs(workspace, filepath.Join(relDir, entry.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("load skill docs %s: %w", entry.Name(), err)
+		}
+		s.Docs = docs
+
 		skills = append(skills, &s)
 	}
 
@@ -162,6 +170,50 @@ func loadSkills(workspace string) ([]*Skill, error) {
 		return []*Skill{}, nil
 	}
 	return skills, nil
+}
+
+// loadSkillDocs recursively collects every .md file under the skill dir except
+// the top-level SKILL.md manifest. RelPath is relative to the skill dir in
+// forward-slash form; non-.md files are ignored. Docs are sorted by RelPath.
+func loadSkillDocs(workspace, skillRel string) ([]SkillDoc, error) {
+	var docs []SkillDoc
+	manifest := filepath.Join(skillRel, "SKILL.md")
+
+	var walk func(rel string) error
+	walk = func(rel string) error {
+		entries, err := safeReadDir(workspace, rel)
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			childRel := filepath.Join(rel, e.Name())
+			if e.IsDir() {
+				if err := walk(childRel); err != nil {
+					return err
+				}
+				continue
+			}
+			if filepath.Ext(e.Name()) != ".md" || childRel == manifest {
+				continue
+			}
+			data, err := safepath.ReadFile(workspace, childRel)
+			if err != nil {
+				return fmt.Errorf("read %s: %w", childRel, err)
+			}
+			docRel, err := filepath.Rel(skillRel, childRel)
+			if err != nil {
+				return err
+			}
+			docs = append(docs, SkillDoc{RelPath: filepath.ToSlash(docRel), Content: string(data)})
+		}
+		return nil
+	}
+
+	if err := walk(skillRel); err != nil {
+		return nil, err
+	}
+	sort.Slice(docs, func(i, j int) bool { return docs[i].RelPath < docs[j].RelPath })
+	return docs, nil
 }
 
 func loadAgents(workspace string) ([]*Agent, error) {

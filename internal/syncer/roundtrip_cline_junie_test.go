@@ -28,6 +28,7 @@ func TestRoundtripClineJunie(t *testing.T) {
 			Name:        "sample-skill",
 			Description: "Probe skill description",
 			Body:        "Skill instructions.\n",
+			Docs:        []canonical.SkillDoc{{RelPath: "reference.md", Content: "Reference doc content.\n"}},
 		}},
 		Agents: []*canonical.Agent{{
 			Filename:    "sample-agent",
@@ -61,6 +62,7 @@ func TestRoundtripClineJunie(t *testing.T) {
 			reversible: map[string]string{
 				".clinerules/sample-rule.md":              "rule",
 				".cline/skills/sample-skill/SKILL.md":     "skill",
+				".cline/skills/sample-skill/reference.md": "skilldoc",
 				".clinerules/workflows/sample-command.md": "command",
 			},
 		},
@@ -70,6 +72,7 @@ func TestRoundtripClineJunie(t *testing.T) {
 			reversible: map[string]string{
 				"Documents/Cline/Rules/sample-rule.md":        "rule",
 				".cline/skills/sample-skill/SKILL.md":         "skill",
+				".cline/skills/sample-skill/reference.md":     "skilldoc",
 				"Documents/Cline/Workflows/sample-command.md": "command",
 			},
 		},
@@ -77,18 +80,20 @@ func TestRoundtripClineJunie(t *testing.T) {
 			adapter: "JetBrains Junie",
 			scope:   tools.ScopeProject,
 			reversible: map[string]string{
-				".junie/skills/sample-skill/SKILL.md": "skill",
-				".junie/agents/sample-agent.md":       "agent",
-				".junie/commands/sample-command.md":   "command",
+				".junie/skills/sample-skill/SKILL.md":     "skill",
+				".junie/skills/sample-skill/reference.md": "skilldoc",
+				".junie/agents/sample-agent.md":           "agent",
+				".junie/commands/sample-command.md":       "command",
 			},
 		},
 		{
 			adapter: "JetBrains Junie",
 			scope:   tools.ScopeUser,
 			reversible: map[string]string{
-				".junie/skills/sample-skill/SKILL.md": "skill",
-				".junie/agents/sample-agent.md":       "agent",
-				".junie/commands/sample-command.md":   "command",
+				".junie/skills/sample-skill/SKILL.md":     "skill",
+				".junie/skills/sample-skill/reference.md": "skilldoc",
+				".junie/agents/sample-agent.md":           "agent",
+				".junie/commands/sample-command.md":       "command",
 			},
 		},
 	}
@@ -145,10 +150,11 @@ func TestRoundtripClineJunie(t *testing.T) {
 
 			// Verify the adopted entities exist in canonical with non-empty content.
 			checks := map[string]string{
-				"rule":    filepath.Join(".agentsync", "rules", "sample-rule.md"),
-				"skill":   filepath.Join(".agentsync", "skills", "sample-skill", "SKILL.md"),
-				"agent":   filepath.Join(".agentsync", "agents", "sample-agent.md"),
-				"command": filepath.Join(".agentsync", "commands", "sample-command.md"),
+				"rule":     filepath.Join(".agentsync", "rules", "sample-rule.md"),
+				"skill":    filepath.Join(".agentsync", "skills", "sample-skill", "SKILL.md"),
+				"skilldoc": filepath.Join(".agentsync", "skills", "sample-skill", "reference.md"),
+				"agent":    filepath.Join(".agentsync", "agents", "sample-agent.md"),
+				"command":  filepath.Join(".agentsync", "commands", "sample-command.md"),
 			}
 			seenKinds := map[string]bool{}
 			for _, kind := range tc.reversible {
@@ -177,6 +183,10 @@ func TestRoundtripClineJunie(t *testing.T) {
 					if !strings.Contains(string(data), "Skill instructions.") {
 						t.Errorf("canonical skill body missing in roundtrip: %s", string(data))
 					}
+				case "skilldoc":
+					if !strings.Contains(string(data), "Reference doc content.") {
+						t.Errorf("canonical skill doc body missing in roundtrip: %s", string(data))
+					}
 				case "agent":
 					if !strings.Contains(string(data), "Agent system prompt.") {
 						t.Errorf("canonical agent body missing in roundtrip: %s", string(data))
@@ -185,6 +195,30 @@ func TestRoundtripClineJunie(t *testing.T) {
 					if !strings.Contains(string(data), "Command prompt body.") {
 						t.Errorf("canonical command body missing in roundtrip: %s", string(data))
 					}
+				}
+			}
+
+			// Manifest and doc must coexist and load together: a skill dir with a
+			// SKILL.md plus docs reloads with Docs populated (guards load.go's
+			// "skip dir without SKILL.md" against multi-file skills).
+			if seenKinds["skilldoc"] {
+				c, err := canonical.Load(ws)
+				if err != nil {
+					t.Fatalf("reload canonical: %v", err)
+				}
+				found := false
+				for _, s := range c.Skills {
+					if s.Dir != "sample-skill" {
+						continue
+					}
+					for _, d := range s.Docs {
+						if d.RelPath == "reference.md" {
+							found = true
+						}
+					}
+				}
+				if !found {
+					t.Errorf("skill doc reference.md did not load into canonical Skill.Docs")
 				}
 			}
 		})

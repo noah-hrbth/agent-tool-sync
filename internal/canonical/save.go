@@ -2,6 +2,7 @@ package canonical
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -15,14 +16,119 @@ func SaveAgentsMD(workspace, content string) error {
 	return safepath.WriteFile(workspace, filepath.Join(".agentsync", "AGENTS.md"), []byte(content), 0o644)
 }
 
-// SaveSkill writes a skill's SKILL.md (frontmatter + body) to
-// <workspace>/.agentsync/skills/<dir>/SKILL.md.
+// SaveSkill writes only the skill manifest (SKILL.md frontmatter + body) to
+// <workspace>/.agentsync/skills/<dir>/SKILL.md. Skill docs (other .md files) are
+// written individually via SaveSkillDoc, not here.
 func SaveSkill(workspace string, s *Skill) error {
 	out, err := RenderSkill(s)
 	if err != nil {
 		return fmt.Errorf("marshal skill %s: %w", s.Dir, err)
 	}
 	return safepath.WriteFile(workspace, filepath.Join(".agentsync", "skills", s.Dir, "SKILL.md"), []byte(out), 0o644)
+}
+
+// SaveSkillDoc writes a skill doc (an additional .md file) at
+// .agentsync/skills/<dir>/<relPath>. relPath must be a relative .md path within
+// the skill dir (never SKILL.md); parent subdirs are created as needed.
+func SaveSkillDoc(workspace, dir, relPath, content string) error {
+	if err := ValidateSkillDocRelPath(relPath); err != nil {
+		return err
+	}
+	rel := filepath.Join(".agentsync", "skills", dir, filepath.FromSlash(relPath))
+	return safepath.WriteFile(workspace, rel, []byte(content), 0o644)
+}
+
+// DeleteSkillDoc removes .agentsync/skills/<dir>/<relPath> and prunes any parent
+// subdirectories left empty, stopping at (never removing) the skill dir.
+func DeleteSkillDoc(workspace, dir, relPath string) error {
+	if err := ValidateSkillDocRelPath(relPath); err != nil {
+		return err
+	}
+	skillDir := filepath.Join(".agentsync", "skills", dir)
+	rel := filepath.Join(skillDir, filepath.FromSlash(relPath))
+	if err := safepath.Remove(workspace, rel); err != nil {
+		return err
+	}
+	return pruneEmptyDirs(workspace, skillDir, filepath.Dir(rel))
+}
+
+// DeleteSkillSubdir removes a subfolder (and all its contents) under a skill dir:
+// .agentsync/skills/<dir>/<relDir>. relDir must be a relative path within the
+// skill dir (no "..", not absolute).
+func DeleteSkillSubdir(workspace, dir, relDir string) error {
+	if err := validateSkillSubdirRelPath(relDir); err != nil {
+		return err
+	}
+	return safepath.RemoveAll(workspace, filepath.Join(".agentsync", "skills", dir, filepath.FromSlash(relDir)))
+}
+
+// validateSkillSubdirRelPath rejects subdir paths that are empty, absolute, or
+// escape the skill dir.
+func validateSkillSubdirRelPath(relDir string) error {
+	if relDir == "" {
+		return fmt.Errorf("skill subdir is empty")
+	}
+	if strings.HasPrefix(relDir, "/") {
+		return fmt.Errorf("skill subdir %q must be relative", relDir)
+	}
+	clean := filepath.ToSlash(filepath.Clean(relDir))
+	for _, seg := range strings.Split(clean, "/") {
+		if seg == ".." {
+			return fmt.Errorf("skill subdir %q must not contain ..", relDir)
+		}
+	}
+	return nil
+}
+
+// pruneEmptyDirs removes empty directories from dir upward, stopping before stop.
+func pruneEmptyDirs(workspace, stop, dir string) error {
+	for dir != stop {
+		abs, err := safepath.Resolve(workspace, dir)
+		if err != nil {
+			return err
+		}
+		entries, err := os.ReadDir(abs)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if len(entries) != 0 {
+			return nil
+		}
+		if err := safepath.Remove(workspace, dir); err != nil {
+			return err
+		}
+		dir = filepath.Dir(dir)
+	}
+	return nil
+}
+
+// ValidateSkillDocRelPath rejects skill-doc paths that are absolute, name a
+// folder, aren't .md, are the SKILL.md manifest, or escape the skill dir.
+// Exported so the TUI's add-doc input shares one validation rule.
+func ValidateSkillDocRelPath(relPath string) error {
+	switch {
+	case relPath == "":
+		return fmt.Errorf("skill doc path is empty")
+	case strings.HasPrefix(relPath, "/"):
+		return fmt.Errorf("skill doc path %q must be relative", relPath)
+	case strings.HasSuffix(relPath, "/"):
+		return fmt.Errorf("skill doc path %q must name a .md file, not a folder", relPath)
+	case filepath.Ext(relPath) != ".md":
+		return fmt.Errorf("skill doc path %q must end in .md", relPath)
+	}
+	clean := filepath.ToSlash(filepath.Clean(relPath))
+	if clean == "SKILL.md" {
+		return fmt.Errorf("SKILL.md is the manifest, not a skill doc")
+	}
+	for _, seg := range strings.Split(clean, "/") {
+		if seg == ".." {
+			return fmt.Errorf("skill doc path %q must not contain ..", relPath)
+		}
+	}
+	return nil
 }
 
 // SaveAgent writes an agent file to <workspace>/.agentsync/agents/<filename>.md.
@@ -91,6 +197,18 @@ func CreateEmptySkill(workspace, dir string) (*Skill, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// CreateEmptySkillDoc writes a minimal skill doc at
+// .agentsync/skills/<dir>/<relPath> (body "# <basename>\n") and returns it.
+// Parent subdirs in relPath are created implicitly.
+func CreateEmptySkillDoc(workspace, dir, relPath string) (*SkillDoc, error) {
+	base := strings.TrimSuffix(filepath.Base(relPath), ".md")
+	doc := &SkillDoc{RelPath: filepath.ToSlash(relPath), Content: "# " + base + "\n"}
+	if err := SaveSkillDoc(workspace, dir, relPath, doc.Content); err != nil {
+		return nil, err
+	}
+	return doc, nil
 }
 
 // CreateEmptyAgent writes a minimal subagent at .agentsync/agents/<slug>.md

@@ -161,6 +161,89 @@ func TestAdoptSkill(t *testing.T) {
 	}
 }
 
+func TestAdoptSkillDocFromClaude(t *testing.T) {
+	ws := buildAdoptWorkspace(t)
+	docContent := "# reference\n\nSome reference text.\n"
+	if err := os.WriteFile(filepath.Join(ws, ".claude", "skills", "code-review", "reference.md"), []byte(docContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := syncer.AdoptExternal(ws, ".claude/skills/code-review/reference.md"); err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+
+	saved, err := os.ReadFile(filepath.Join(ws, ".agentsync", "skills", "code-review", "reference.md"))
+	if err != nil {
+		t.Fatalf("read canonical skill doc: %v", err)
+	}
+	if string(saved) != docContent {
+		t.Errorf("skill doc: got %q, want %q", saved, docContent)
+	}
+}
+
+func TestAdoptNestedSkillDocFromClaude(t *testing.T) {
+	ws := buildAdoptWorkspace(t)
+	if err := os.MkdirAll(filepath.Join(ws, ".claude", "skills", "code-review", "examples"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	docContent := "# invoice example\n"
+	if err := os.WriteFile(filepath.Join(ws, ".claude", "skills", "code-review", "examples", "invoice.md"), []byte(docContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := syncer.AdoptExternal(ws, ".claude/skills/code-review/examples/invoice.md"); err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+
+	saved, err := os.ReadFile(filepath.Join(ws, ".agentsync", "skills", "code-review", "examples", "invoice.md"))
+	if err != nil {
+		t.Fatalf("read nested canonical skill doc: %v", err)
+	}
+	if string(saved) != docContent {
+		t.Errorf("nested skill doc: got %q, want %q", saved, docContent)
+	}
+}
+
+func TestAdoptSkillDocWithRulesSubfolderNotMisroutedToRule(t *testing.T) {
+	ws := buildAdoptWorkspace(t)
+	if err := os.MkdirAll(filepath.Join(ws, ".claude", "skills", "code-review", "rules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	doc := "# nested doc under a rules/ subfolder\n"
+	if err := os.WriteFile(filepath.Join(ws, ".claude", "skills", "code-review", "rules", "x.md"), []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := syncer.AdoptExternal(ws, ".claude/skills/code-review/rules/x.md"); err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+
+	// Must round-trip as a skill doc, not be claimed by the generic rule matcher.
+	if _, err := os.Stat(filepath.Join(ws, ".agentsync", "skills", "code-review", "rules", "x.md")); err != nil {
+		t.Errorf("skill doc with a rules/ subfolder should adopt as a skill doc: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".agentsync", "rules", "x.md")); !os.IsNotExist(err) {
+		t.Error("skill doc must not be mis-adopted as a canonical rule")
+	}
+}
+
+func TestAdoptSkillDocDoesNotClaimAgentPath(t *testing.T) {
+	ws := buildAdoptWorkspace(t)
+	agentContent := "---\nname: foo\ndescription: an agent\n---\nbody\n"
+	if err := os.WriteFile(filepath.Join(ws, ".claude", "agents", "foo.md"), []byte(agentContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := syncer.AdoptExternal(ws, ".claude/agents/foo.md"); err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+
+	// Must land as an agent, not as a skill doc.
+	if _, err := os.Stat(filepath.Join(ws, ".agentsync", "agents", "foo.md")); err != nil {
+		t.Errorf("agent path must adopt as an agent: %v", err)
+	}
+}
+
 func TestAdoptAgent(t *testing.T) {
 	ws := buildAdoptWorkspace(t)
 	agentContent := "---\nname: researcher\ndescription: Researches topics\ntools: [Read]\nmodel: sonnet\n---\nResearch the topic.\n"

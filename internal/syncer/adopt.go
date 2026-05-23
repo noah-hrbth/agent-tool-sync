@@ -19,8 +19,10 @@ import (
 // (Cursor general.mdc, Cline rules/workflows, Copilot instructions/agents/
 // prompts) MUST precede the generic matchers — their paths or suffixes would
 // otherwise be mis-claimed by matchRulePath/matchAgentPath/matchCommandPath.
-// internal/syncer/contract_test.go fails if this ordering (or the shared path
-// vocabulary in internal/tools/paths.go) drifts from what render emits.
+// matchSkillPath also MUST precede matchRulePath: a skill doc under a
+// "<skill>/rules/" subfolder would otherwise be claimed by the generic /rules/
+// matcher. internal/syncer/contract_test.go fails if this ordering (or the
+// shared path vocabulary in internal/tools/paths.go) drifts from what render emits.
 func AdoptExternal(workspace, path string) error {
 	data, err := safepath.ReadFile(workspace, path)
 	if err != nil {
@@ -109,6 +111,25 @@ func AdoptExternal(workspace, path string) error {
 		}
 		return canonical.SaveCommand(workspace, &cmd)
 
+	case matchSkillPath(path):
+		// Must precede matchRulePath: a skill doc may legally live under a
+		// "<skill>/rules/" subfolder, which the generic /rules/ matcher would
+		// otherwise claim. matchSkillPath only matches explicit /skills/ prefixes,
+		// so real rule files are never stolen here.
+		// SKILL.md is the manifest (typed frontmatter); any other .md is a plain
+		// skill doc persisted verbatim under the same skill dir.
+		if filepath.Base(path) != "SKILL.md" {
+			return canonical.SaveSkillDoc(workspace, skillDir(path), skillDocRelPath(path), content)
+		}
+		var s canonical.Skill
+		body, err := frontmatter.Parse(strings.NewReader(content), &s)
+		if err != nil {
+			return fmt.Errorf("parse skill frontmatter: %w", err)
+		}
+		s.Dir = skillDir(path)
+		s.Body = string(body)
+		return canonical.SaveSkill(workspace, &s)
+
 	case matchRulePath(path):
 		var r canonical.Rule
 		body, err := frontmatter.Parse(strings.NewReader(content), &r)
@@ -118,16 +139,6 @@ func AdoptExternal(workspace, path string) error {
 		r.Filename = ruleFilename(path)
 		r.Body = string(body)
 		return canonical.SaveRule(workspace, &r)
-
-	case matchSkillPath(path):
-		var s canonical.Skill
-		body, err := frontmatter.Parse(strings.NewReader(content), &s)
-		if err != nil {
-			return fmt.Errorf("parse skill frontmatter: %w", err)
-		}
-		s.Dir = skillDir(path)
-		s.Body = string(body)
-		return canonical.SaveSkill(workspace, &s)
 
 	case matchAgentPath(path):
 		var a canonical.Agent
@@ -186,11 +197,32 @@ func isRootMemoryFile(path string) bool {
 	return false
 }
 
+// matchSkillPath reports whether path is a skill file (the SKILL.md manifest or
+// any other .md skill doc) under one of the tools' skill dirs. Requires at least
+// "<prefix><dir>/<file>.md" so a stray .md directly under skills/ is not claimed.
 func matchSkillPath(path string) bool {
-	if !strings.HasSuffix(path, "/SKILL.md") {
-		return false
+	for _, prefix := range tools.SkillDirPrefixes() {
+		if !strings.HasPrefix(path, prefix) {
+			continue
+		}
+		rest := strings.TrimPrefix(path, prefix)
+		if strings.Contains(rest, "/") && strings.HasSuffix(rest, ".md") {
+			return true
+		}
 	}
-	return hasAnyPrefix(path, tools.SkillDirPrefixes())
+	return false
+}
+
+// skillDocRelPath returns the skill-doc path relative to its skill dir, e.g.
+// ".claude/skills/foo/examples/x.md" → "examples/x.md".
+func skillDocRelPath(path string) string {
+	parts := strings.Split(path, "/")
+	for i, p := range parts {
+		if p == "skills" && i+2 < len(parts) {
+			return strings.Join(parts[i+2:], "/")
+		}
+	}
+	return ""
 }
 
 // hasAnyPrefix reports whether path begins with any of the prefixes.

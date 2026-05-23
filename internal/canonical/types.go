@@ -8,15 +8,23 @@ type Rule struct {
 	Body        string   `yaml:"-"`
 }
 
-// Skill is a skill definition from .agentsync/skills/<dir>/SKILL.md.
+// Skill is a skill definition from .agentsync/skills/<dir>/SKILL.md (the manifest).
 type Skill struct {
-	Dir                    string   `yaml:"-"` // folder name under skills/ (set by loader)
-	Name                   string   `yaml:"name"`
-	Description            string   `yaml:"description"`
-	AllowedTools           []string `yaml:"allowed-tools,omitempty"`
-	DisableModelInvocation bool     `yaml:"disable-model-invocation,omitempty"`
-	Paths                  []string `yaml:"paths,omitempty"`
-	Body                   string   `yaml:"-"` // markdown body after frontmatter
+	Dir                    string     `yaml:"-"` // folder name under skills/ (set by loader)
+	Name                   string     `yaml:"name"`
+	Description            string     `yaml:"description"`
+	AllowedTools           []string   `yaml:"allowed-tools,omitempty"`
+	DisableModelInvocation bool       `yaml:"disable-model-invocation,omitempty"`
+	Paths                  []string   `yaml:"paths,omitempty"`
+	Body                   string     `yaml:"-"` // SKILL.md markdown body after frontmatter
+	Docs                   []SkillDoc `yaml:"-"` // additional .md files under the skill dir (set by loader)
+}
+
+// SkillDoc is an additional markdown file under a skill dir (anything but the
+// top-level SKILL.md manifest). Plain markdown — no frontmatter parsing.
+type SkillDoc struct {
+	RelPath string // path relative to the skill dir, forward-slash (e.g. "examples/invoice.md")
+	Content string // raw file content
 }
 
 // Agent is a subagent definition from .agentsync/agents/<filename>.md.

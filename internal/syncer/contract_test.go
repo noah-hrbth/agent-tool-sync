@@ -25,6 +25,7 @@ func TestRenderAdoptContract(t *testing.T) {
 		Skills: []*canonical.Skill{{
 			Dir: "sample-skill", Name: "sample-skill",
 			Description: "probe skill", Body: "Skill instructions.\n",
+			Docs: []canonical.SkillDoc{{RelPath: "reference.md", Content: "# reference\n"}},
 		}},
 		Agents: []*canonical.Agent{{
 			Filename: "sample-agent", Name: "sample-agent",
@@ -66,6 +67,17 @@ func TestRenderAdoptContract(t *testing.T) {
 					if adoptErr != nil {
 						t.Fatalf("declared reversible/root/cross but AdoptExternal failed: %v\n"+
 							"(undeclared drift: path renders but adopt.go cannot reverse it)", adoptErr)
+					}
+
+					// A skill doc reverses to a plain file under canonical skills/,
+					// not a loadable manifest, so verify the file directly. (In this
+					// isolated probe workspace there is no SKILL.md to load.)
+					if fw.Concept == tools.ConceptSkills && filepath.Base(fw.Path) != "SKILL.md" {
+						docPath := filepath.Join(ws, ".agentsync", "skills", "sample-skill", filepath.Base(fw.Path))
+						if _, err := os.Stat(docPath); err != nil {
+							t.Fatalf("skill doc adopted but not found in canonical: %v", err)
+						}
+						return
 					}
 
 					c, err := canonical.Load(ws)

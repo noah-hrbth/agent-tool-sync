@@ -93,6 +93,168 @@ func TestDeleteHelpers(t *testing.T) {
 	}
 }
 
+func TestSaveSkillDocWritesAtRelPath(t *testing.T) {
+	// Arrange
+	ws := t.TempDir()
+	if _, err := CreateEmptySkill(ws, "pdf-tools"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	if err := SaveSkillDoc(ws, "pdf-tools", "reference.md", "# reference\n"); err != nil {
+		t.Fatalf("SaveSkillDoc: %v", err)
+	}
+
+	// Assert
+	got, err := os.ReadFile(filepath.Join(ws, ".agentsync", "skills", "pdf-tools", "reference.md"))
+	if err != nil {
+		t.Fatalf("read doc: %v", err)
+	}
+	if string(got) != "# reference\n" {
+		t.Errorf("content = %q, want %q", got, "# reference\n")
+	}
+}
+
+func TestSaveSkillDocCreatesNestedParents(t *testing.T) {
+	// Arrange
+	ws := t.TempDir()
+	if _, err := CreateEmptySkill(ws, "pdf-tools"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	if err := SaveSkillDoc(ws, "pdf-tools", "examples/invoice.md", "# invoice\n"); err != nil {
+		t.Fatalf("SaveSkillDoc: %v", err)
+	}
+
+	// Assert
+	if _, err := os.Stat(filepath.Join(ws, ".agentsync", "skills", "pdf-tools", "examples", "invoice.md")); err != nil {
+		t.Errorf("nested doc not written: %v", err)
+	}
+}
+
+func TestCreateEmptySkillDocPersistsStub(t *testing.T) {
+	// Arrange
+	ws := t.TempDir()
+	if _, err := CreateEmptySkill(ws, "pdf-tools"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	doc, err := CreateEmptySkillDoc(ws, "pdf-tools", "docs/test.md")
+	if err != nil {
+		t.Fatalf("CreateEmptySkillDoc: %v", err)
+	}
+
+	// Assert
+	if doc.RelPath != "docs/test.md" {
+		t.Errorf("RelPath = %q, want docs/test.md", doc.RelPath)
+	}
+	c, err := Load(ws)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if d := skillDocByRelPath(c.Skills[0], "docs/test.md"); d == nil {
+		t.Errorf("created doc not loaded back; got %+v", c.Skills[0].Docs)
+	}
+}
+
+func TestDeleteSkillDocRemovesFile(t *testing.T) {
+	// Arrange
+	ws := t.TempDir()
+	if _, err := CreateEmptySkill(ws, "pdf-tools"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveSkillDoc(ws, "pdf-tools", "reference.md", "# ref\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	if err := DeleteSkillDoc(ws, "pdf-tools", "reference.md"); err != nil {
+		t.Fatalf("DeleteSkillDoc: %v", err)
+	}
+
+	// Assert: doc gone, manifest preserved
+	if _, err := os.Stat(filepath.Join(ws, ".agentsync", "skills", "pdf-tools", "reference.md")); !os.IsNotExist(err) {
+		t.Errorf("doc not removed, err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".agentsync", "skills", "pdf-tools", "SKILL.md")); err != nil {
+		t.Errorf("manifest must survive doc delete: %v", err)
+	}
+}
+
+func TestDeleteSkillDocPrunesEmptyParentsStoppingAtSkillDir(t *testing.T) {
+	// Arrange: deeply nested doc, manifest at top
+	ws := t.TempDir()
+	if _, err := CreateEmptySkill(ws, "pdf-tools"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveSkillDoc(ws, "pdf-tools", "a/b/c.md", "x\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	if err := DeleteSkillDoc(ws, "pdf-tools", "a/b/c.md"); err != nil {
+		t.Fatalf("DeleteSkillDoc: %v", err)
+	}
+
+	// Assert: empty intermediate dirs pruned, skill dir + manifest remain
+	if _, err := os.Stat(filepath.Join(ws, ".agentsync", "skills", "pdf-tools", "a")); !os.IsNotExist(err) {
+		t.Errorf("empty parent a/ should be pruned, err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".agentsync", "skills", "pdf-tools", "SKILL.md")); err != nil {
+		t.Errorf("skill dir must not be pruned: %v", err)
+	}
+}
+
+func TestDeleteSkillSubdirRemovesFolder(t *testing.T) {
+	ws := t.TempDir()
+	if _, err := CreateEmptySkill(ws, "pdf-tools"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveSkillDoc(ws, "pdf-tools", "tests/a.md", "a\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveSkillDoc(ws, "pdf-tools", "tests/b.md", "b\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := DeleteSkillSubdir(ws, "pdf-tools", "tests"); err != nil {
+		t.Fatalf("DeleteSkillSubdir: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(ws, ".agentsync", "skills", "pdf-tools", "tests")); !os.IsNotExist(err) {
+		t.Error("subdir folder should be removed")
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".agentsync", "skills", "pdf-tools", "SKILL.md")); err != nil {
+		t.Error("manifest must survive subdir delete")
+	}
+}
+
+func TestDeleteSkillSubdirRejectsBad(t *testing.T) {
+	ws := t.TempDir()
+	if _, err := CreateEmptySkill(ws, "s"); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"", "..", "../x", "/abs"} {
+		if err := DeleteSkillSubdir(ws, "s", bad); err == nil {
+			t.Errorf("DeleteSkillSubdir(%q) = nil, want error", bad)
+		}
+	}
+}
+
+func TestSaveSkillDocRejectsBadRelPaths(t *testing.T) {
+	ws := t.TempDir()
+	if _, err := CreateEmptySkill(ws, "pdf-tools"); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{"../escape.md", "SKILL.md", "/abs.md", "a/../../b.md", "notes.txt", "docs/"} {
+		if err := SaveSkillDoc(ws, "pdf-tools", rel, "x\n"); err == nil {
+			t.Errorf("SaveSkillDoc(%q) = nil, want error", rel)
+		}
+	}
+}
+
 // TestCreateEmptySkillFolderLayout verifies a skill creates the SKILL.md
 // inside its named folder, not as a flat file.
 func TestCreateEmptySkillFolderLayout(t *testing.T) {

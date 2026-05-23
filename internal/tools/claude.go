@@ -66,11 +66,13 @@ func renderClaude(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 			{key: "disable-model-invocation", value: skill.DisableModelInvocation},
 			{key: "paths", value: skill.Paths},
 		}, skill.Body)
+		skillDir := filepath.Join(claudeDir, "skills", skill.Dir)
 		files = append(files, FileWrite{
 			Concept: ConceptSkills,
-			Path:    filepath.Join(claudeDir, "skills", skill.Dir, "SKILL.md"),
+			Path:    filepath.Join(skillDir, "SKILL.md"),
 			Content: []byte(content),
 		})
+		files = appendSkillDocs(files, skillDir, skill.Docs)
 	}
 
 	for _, agent := range c.Agents {

@@ -78,11 +78,13 @@ func renderCopilot(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 			{key: "name", value: skill.Dir},
 			{key: "description", value: skill.Description},
 		}, skill.Body)
+		skillDir := filepath.Join(skillsDir, skill.Dir)
 		files = append(files, FileWrite{
 			Concept: ConceptSkills,
-			Path:    filepath.Join(skillsDir, skill.Dir, "SKILL.md"),
+			Path:    filepath.Join(skillDir, "SKILL.md"),
 			Content: []byte(content),
 		})
+		files = appendSkillDocs(files, skillDir, skill.Docs)
 	}
 
 	// Agents. The .agent.md suffix is mandatory — Copilot renamed legacy

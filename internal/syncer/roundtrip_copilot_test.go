@@ -28,6 +28,7 @@ func TestRoundtripCopilot(t *testing.T) {
 			Name:        "sample-skill",
 			Description: "Probe skill description",
 			Body:        "Skill instructions.\n",
+			Docs:        []canonical.SkillDoc{{RelPath: "reference.md", Content: "Reference doc content.\n"}},
 		}},
 		Agents: []*canonical.Agent{{
 			Filename:    "sample-agent",
@@ -56,6 +57,7 @@ func TestRoundtripCopilot(t *testing.T) {
 				".github/copilot-instructions.md":                  "agentsmd",
 				".github/instructions/sample-rule.instructions.md": "rule",
 				".github/skills/sample-skill/SKILL.md":             "skill",
+				".github/skills/sample-skill/reference.md":         "skilldoc",
 				".github/agents/sample-agent.agent.md":             "agent",
 				".github/prompts/sample-command.prompt.md":         "command",
 			},
@@ -67,6 +69,7 @@ func TestRoundtripCopilot(t *testing.T) {
 				".copilot/copilot-instructions.md":                  "agentsmd",
 				".copilot/instructions/sample-rule.instructions.md": "rule",
 				".copilot/skills/sample-skill/SKILL.md":             "skill",
+				".copilot/skills/sample-skill/reference.md":         "skilldoc",
 				".copilot/agents/sample-agent.agent.md":             "agent",
 				// no user-scope command path
 			},
@@ -134,6 +137,7 @@ func TestRoundtripCopilot(t *testing.T) {
 				"agentsmd": filepath.Join(".agentsync", "AGENTS.md"),
 				"rule":     filepath.Join(".agentsync", "rules", "sample-rule.md"),
 				"skill":    filepath.Join(".agentsync", "skills", "sample-skill", "SKILL.md"),
+				"skilldoc": filepath.Join(".agentsync", "skills", "sample-skill", "reference.md"),
 				"agent":    filepath.Join(".agentsync", "agents", "sample-agent.md"),
 				"command":  filepath.Join(".agentsync", "commands", "sample-command.md"),
 			}
@@ -166,6 +170,10 @@ func TestRoundtripCopilot(t *testing.T) {
 				case "skill":
 					if !strings.Contains(string(data), "Skill instructions.") {
 						t.Errorf("canonical skill body missing: %s", string(data))
+					}
+				case "skilldoc":
+					if !strings.Contains(string(data), "Reference doc content.") {
+						t.Errorf("canonical skill doc body missing: %s", string(data))
 					}
 				case "agent":
 					if !strings.Contains(string(data), "Agent system prompt.") {

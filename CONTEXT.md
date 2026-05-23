@@ -14,6 +14,17 @@ _Avoid_: source, master, origin
 A category of canonical configuration — one of rules, skills, agents, commands.
 _Avoid_: kind, type, category
 
+**Skill manifest**:
+The `SKILL.md` file at the root of a skill dir — typed frontmatter (name, description,
+allowed-tools, …) plus the instruction body. Exactly one per skill.
+_Avoid_: skill file, SKILL (bare), skill body
+
+**Skill doc**:
+Any additional `.md` file under a skill dir besides the manifest (e.g. `reference.md`,
+`examples/x.md`), addressed by its RelPath. Plain markdown, no frontmatter. A skill is
+its manifest plus zero or more skill docs; non-`.md` files in the dir are not synced.
+_Avoid_: attachment, supporting file, sidecar, resource
+
 **Scope**:
 The directory tree the canonical maps onto: project (`<workspace>/`) or user (`$HOME`).
 _Avoid_: level, target, environment

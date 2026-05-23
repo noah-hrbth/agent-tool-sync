@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/atotto/clipboard"
@@ -58,6 +59,14 @@ type fileItem struct {
 	skill       *canonical.Skill
 	agent       *canonical.Agent
 	command     *canonical.Command
+	// Skill-tree rows (kind == kindSkill) come in four shapes:
+	//   isSkillDir     → the skill dir node ("<dir>/"); deletes the whole skill.
+	//   skillSubdir!=""→ a subdir node ("<seg>/"); value is its relpath under the skill dir.
+	//   skillDoc!=""   → a skill doc row; value is its RelPath under the skill dir.
+	//   all empty      → the SKILL.md manifest row (typed frontmatter).
+	isSkillDir  bool
+	skillSubdir string
+	skillDoc    string
 }
 
 // pendingSel records a not-yet-loaded selection so a reloadMsg can position
@@ -65,6 +74,7 @@ type fileItem struct {
 type pendingSel struct {
 	kind fileKind
 	slug string
+	doc  string // when set, select this skill doc relpath instead of the manifest
 }
 
 type toolItem struct {
@@ -159,6 +169,12 @@ type model struct {
 	inputKind     fileKind
 	inputErr      string
 	pendingSelect *pendingSel
+	// add-doc reuses the same textinput modal; addDocSkill is the target skill and
+	// addDocBase is the focused subdir (forward-slash, "" = skill root) the new
+	// doc path is resolved against.
+	addingDoc   bool
+	addDocSkill *canonical.Skill
+	addDocBase  string
 
 	// delete confirmation modal
 	confirmingDelete bool
@@ -241,11 +257,12 @@ func buildFileItems(c *canonical.Canonical) []fileItem {
 	if len(c.Skills) == 0 {
 		items = append(items, fileItem{label: "(no skills yet — press n to create)", kind: kindSkill, placeholder: true})
 	} else {
+		// Each skill expands to a dir node, then its docs laid out as a tree
+		// (manifest first, files before subdir nodes at each level, depth shown
+		// via indentation).
 		for _, s := range c.Skills {
-			items = append(items, fileItem{
-				label: fmt.Sprintf("skills/%s/SKILL.md", s.Dir),
-				kind:  kindSkill, skill: s,
-			})
+			items = append(items, fileItem{label: s.Dir + "/", kind: kindSkill, skill: s, isSkillDir: true})
+			items = append(items, buildSkillDocRows(s)...)
 		}
 	}
 
@@ -254,7 +271,7 @@ func buildFileItems(c *canonical.Canonical) []fileItem {
 	} else {
 		for _, a := range c.Agents {
 			items = append(items, fileItem{
-				label: fmt.Sprintf("agents/%s.md", a.Filename),
+				label: a.Filename + ".md",
 				kind:  kindAgent, agent: a,
 			})
 		}
@@ -265,7 +282,7 @@ func buildFileItems(c *canonical.Canonical) []fileItem {
 	} else {
 		for _, cmd := range c.Commands {
 			items = append(items, fileItem{
-				label: fmt.Sprintf("commands/%s.md", cmd.Filename),
+				label: cmd.Filename + ".md",
 				kind:  kindCommand, command: cmd,
 			})
 		}
@@ -276,13 +293,70 @@ func buildFileItems(c *canonical.Canonical) []fileItem {
 	} else {
 		for _, r := range c.Rules {
 			items = append(items, fileItem{
-				label: fmt.Sprintf("rules/%s.md", r.Filename),
+				label: r.Filename + ".md",
 				kind:  kindRule, rule: r,
 			})
 		}
 	}
 
 	return items
+}
+
+// buildSkillDocRows returns the SKILL.md manifest row followed by the skill's
+// docs laid out as a tree: at each directory level, files (sorted) come before
+// subdir nodes (sorted), and each subdir node precedes its contents. Doc rows
+// show their basename; the subdir node + indentation convey location.
+func buildSkillDocRows(s *canonical.Skill) []fileItem {
+	rows := []fileItem{{label: "SKILL.md", kind: kindSkill, skill: s}}
+
+	dirFiles := map[string][]string{} // dir relpath ("" = root) → direct file relpaths
+	childDirs := map[string][]string{} // dir relpath → direct child subdir relpaths
+	seenDir := map[string]bool{}
+	for _, d := range s.Docs {
+		parent := skillRelDir(d.RelPath)
+		dirFiles[parent] = append(dirFiles[parent], d.RelPath)
+		for p := parent; p != ""; {
+			gp := skillRelDir(p)
+			if !seenDir[p] {
+				seenDir[p] = true
+				childDirs[gp] = append(childDirs[gp], p)
+			}
+			p = gp
+		}
+	}
+
+	var dfs func(dir string)
+	dfs = func(dir string) {
+		files := dirFiles[dir]
+		sort.Strings(files)
+		for _, f := range files {
+			rows = append(rows, fileItem{label: skillRelBase(f), kind: kindSkill, skill: s, skillDoc: f})
+		}
+		subs := childDirs[dir]
+		sort.Strings(subs)
+		for _, sub := range subs {
+			rows = append(rows, fileItem{label: skillRelBase(sub) + "/", kind: kindSkill, skill: s, skillSubdir: sub})
+			dfs(sub)
+		}
+	}
+	dfs("")
+	return rows
+}
+
+// skillRelDir returns the parent dir of a forward-slash relpath ("" for root-level).
+func skillRelDir(rel string) string {
+	if i := strings.LastIndex(rel, "/"); i >= 0 {
+		return rel[:i]
+	}
+	return ""
+}
+
+// skillRelBase returns the last segment of a forward-slash relpath.
+func skillRelBase(rel string) string {
+	if i := strings.LastIndex(rel, "/"); i >= 0 {
+		return rel[i+1:]
+	}
+	return rel
 }
 
 func buildToolItems(adapters []tools.Tool, cfg *config.Config, workspace string) []toolItem {
@@ -317,6 +391,19 @@ func (m *model) fileContent(idx int) string {
 		}
 		return out
 	case kindSkill:
+		// Subdir nodes have no file of their own.
+		if f.skillSubdir != "" {
+			return ""
+		}
+		// Doc rows edit raw markdown; the dir node and manifest both edit SKILL.md.
+		if f.skillDoc != "" {
+			for _, d := range f.skill.Docs {
+				if d.RelPath == f.skillDoc {
+					return d.Content
+				}
+			}
+			return ""
+		}
 		out, err := canonical.RenderSkill(f.skill)
 		if err != nil {
 			return f.skill.Body
@@ -344,10 +431,43 @@ func (m *model) previewContent(idx int) string {
 	if idx < 0 || idx >= len(m.files) || m.files[idx].placeholder {
 		return s
 	}
+	// The skill dir / subdir nodes have no file of their own — show a listing.
+	if f := m.files[idx]; f.kind == kindSkill && f.isSkillDir {
+		return skillDirPreview(f.skill)
+	} else if f.kind == kindSkill && f.skillSubdir != "" {
+		return skillSubdirPreview(f.skill, f.skillSubdir)
+	}
 	if m.files[idx].kind == kindAgentsMD {
 		return s
 	}
 	return spaceFrontmatter(s)
+}
+
+// skillDirPreview is the preview for a skill dir node: the .md-only sync note
+// plus the list of files agentsync manages for the skill.
+func skillDirPreview(s *canonical.Skill) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s/  (skill folder)\n\n", s.Dir)
+	b.WriteString("Only .md files are synced. Other files in this folder\n")
+	b.WriteString("(scripts, etc.) are ignored by agentsync.\n\n")
+	b.WriteString("Synced files:\n  • SKILL.md\n")
+	for _, d := range s.Docs {
+		fmt.Fprintf(&b, "  • %s\n", d.RelPath)
+	}
+	return b.String()
+}
+
+// skillSubdirPreview lists the .md docs under a skill subdir node.
+func skillSubdirPreview(s *canonical.Skill, sub string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s/  (skill subfolder)\n\nFiles:\n", sub)
+	prefix := sub + "/"
+	for _, d := range s.Docs {
+		if strings.HasPrefix(d.RelPath, prefix) {
+			fmt.Fprintf(&b, "  • %s\n", strings.TrimPrefix(d.RelPath, prefix))
+		}
+	}
+	return b.String()
 }
 
 // spaceFrontmatter adds a blank line between the closing "---" fence and the
@@ -455,7 +575,19 @@ func matchesFileItem(f fileItem, path string) bool {
 		slug := strings.TrimSuffix(strings.TrimSuffix(base, ".mdc"), ".md")
 		return slug == f.rule.Filename
 	case kindSkill:
-		return strings.Contains(path, "skills/"+f.skill.Dir+"/")
+		// Dir node rolls up every file under the skill; manifest/doc rows match
+		// their exact file. The leading "skills/" guards against partial dir-name
+		// collisions (e.g. "pdf-tools" vs "x-pdf-tools").
+		if f.isSkillDir {
+			return strings.Contains(path, "skills/"+f.skill.Dir+"/")
+		}
+		if f.skillSubdir != "" {
+			return strings.Contains(path, "skills/"+f.skill.Dir+"/"+f.skillSubdir+"/")
+		}
+		if f.skillDoc == "" {
+			return strings.HasSuffix(path, "skills/"+f.skill.Dir+"/SKILL.md")
+		}
+		return strings.HasSuffix(path, "skills/"+f.skill.Dir+"/"+f.skillDoc)
 	case kindAgent:
 		return strings.Contains(path, "agents/"+f.agent.Filename+".md")
 	case kindCommand:
@@ -558,7 +690,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.pendingSelect != nil {
 			ps := *m.pendingSelect
 			m.pendingSelect = nil
-			if idx := findFileIndex(m.files, ps.kind, ps.slug); idx >= 0 {
+			idx := -1
+			if ps.doc != "" {
+				idx = findSkillDocIndex(m.files, ps.slug, ps.doc)
+			} else {
+				idx = findFileIndex(m.files, ps.kind, ps.slug)
+			}
+			if idx >= 0 {
 				m.fileIdx = idx
 				m = m.startEdit()
 			}
@@ -616,7 +754,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c", "q":
 			return m, tea.Quit
 		case "c":
-			if m.screen == screenFiles && len(m.files) > 0 && !m.files[m.fileIdx].placeholder {
+			if m.screen == screenFiles && len(m.files) > 0 && !m.files[m.fileIdx].placeholder &&
+				!(m.files[m.fileIdx].kind == kindSkill && m.files[m.fileIdx].skillSubdir != "") {
 				if err := clipboardWrite(m.fileContent(m.fileIdx)); err != nil {
 					m.flash = "✗ copy failed: " + err.Error()
 				} else {
@@ -650,6 +789,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "n":
 			if m.screen == screenFiles && len(m.files) > 0 {
 				m = m.startNewFile()
+			}
+		case "a":
+			if m.screen == screenFiles && len(m.files) > 0 {
+				m = m.startAddDoc()
 			}
 		case "d":
 			if m.screen == screenFiles && len(m.files) > 0 {
@@ -827,6 +970,7 @@ func (m model) cursorDown() model {
 		}
 		m.followFileCursor()
 		m.refreshFileList()
+		m.updatePreview()
 	case screenTools:
 		if m.toolIdx < len(m.toolItems)-1 {
 			m.toolIdx++
@@ -845,6 +989,7 @@ func (m model) cursorUp() model {
 		}
 		m.followFileCursor()
 		m.refreshFileList()
+		m.updatePreview()
 	case screenTools:
 		if m.toolIdx > 0 {
 			m.toolIdx--
@@ -1130,6 +1275,10 @@ func (m model) startEdit() model {
 	if m.files[m.fileIdx].placeholder {
 		return m
 	}
+	// Subdir nodes are not editable — they have no file of their own.
+	if f := m.files[m.fileIdx]; f.kind == kindSkill && f.skillSubdir != "" {
+		return m
+	}
 	content := m.fileContent(m.fileIdx)
 	m.editBody = content
 	m.editor.SetValue(content)
@@ -1162,6 +1311,48 @@ func (m model) startNewFile() model {
 	return m
 }
 
+// startAddDoc opens the textinput modal to add a .md doc to the skill under the
+// cursor. No-op unless the cursor is on a skill row (dir node, manifest, or doc).
+func (m model) startAddDoc() model {
+	if m.fileIdx < 0 || m.fileIdx >= len(m.files) {
+		return m
+	}
+	f := m.files[m.fileIdx]
+	if f.kind != kindSkill || f.placeholder || f.skill == nil {
+		return m
+	}
+	m.addingDoc = true
+	m.addDocSkill = f.skill
+	m.addDocBase = addDocBaseDir(f)
+	m.inputErr = ""
+	m.input.Reset()
+	if m.addDocBase != "" {
+		m.input.Placeholder = "new .md in " + m.addDocBase + "/ (e.g. notes.md)"
+	} else {
+		m.input.Placeholder = "doc path (e.g. reference.md or docs/x.md)"
+	}
+	if w := modalWidth(m.w) - 6; w > 10 {
+		m.input.Width = w
+	}
+	m.input.Focus()
+	m.inputting = true
+	return m
+}
+
+// addDocBaseDir returns the skill subdir (forward-slash, "" = root) that a new
+// doc should be created under, given the focused row: a subdir node adds to
+// itself, a doc adds to its own directory, and the dir node / manifest add to root.
+func addDocBaseDir(f fileItem) string {
+	switch {
+	case f.skillSubdir != "":
+		return f.skillSubdir
+	case f.skillDoc != "":
+		return skillRelDir(f.skillDoc)
+	default:
+		return ""
+	}
+}
+
 // newFilePlaceholder returns the textinput placeholder text for a kind.
 func newFilePlaceholder(k fileKind) string {
 	switch k {
@@ -1183,11 +1374,17 @@ func (m model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch km.String() {
 		case "esc":
 			m.inputting = false
+			m.addingDoc = false
+			m.addDocSkill = nil
+			m.addDocBase = ""
 			m.inputErr = ""
 			m.input.Reset()
 			m.input.Blur()
 			return m, nil
 		case "enter":
+			if m.addingDoc {
+				return m.submitAddDoc()
+			}
 			return m.submitNewFile()
 		}
 	}
@@ -1233,6 +1430,40 @@ func (m model) submitNewFile() (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	m.input.Blur()
 	m.pendingSelect = &pendingSel{kind: m.inputKind, slug: slug}
+	return m, reloadCmd(m.workspace)
+}
+
+// submitAddDoc validates the typed relpath, creates the skill doc on disk, and
+// reloads with the cursor on the new doc (in edit mode).
+func (m model) submitAddDoc() (tea.Model, tea.Cmd) {
+	typed := strings.TrimSpace(m.input.Value())
+	// Resolve against the focused subdir so e.g. "notes.md" lands in that subdir.
+	rel := typed
+	if m.addDocBase != "" && typed != "" {
+		rel = m.addDocBase + "/" + typed
+	}
+	if err := canonical.ValidateSkillDocRelPath(rel); err != nil {
+		m.inputErr = err.Error()
+		return m, nil
+	}
+	for _, d := range m.addDocSkill.Docs {
+		if d.RelPath == rel {
+			m.inputErr = fmt.Sprintf("doc %q already exists", rel)
+			return m, nil
+		}
+	}
+	dir := m.addDocSkill.Dir
+	if _, err := canonical.CreateEmptySkillDoc(m.workspace, dir, rel); err != nil {
+		m.inputErr = err.Error()
+		return m, nil
+	}
+	m.inputting = false
+	m.addingDoc = false
+	m.addDocSkill = nil
+	m.addDocBase = ""
+	m.input.Reset()
+	m.input.Blur()
+	m.pendingSelect = &pendingSel{kind: kindSkill, slug: dir, doc: rel}
 	return m, reloadCmd(m.workspace)
 }
 
@@ -1292,6 +1523,17 @@ func validateNewName(kind fileKind, raw string, c *canonical.Canonical) (string,
 		}
 	}
 	return slug, nil
+}
+
+// findSkillDocIndex returns the row index of a skill doc (by skill dir + relpath),
+// or -1 if not found.
+func findSkillDocIndex(files []fileItem, dir, relPath string) int {
+	for i, f := range files {
+		if f.kind == kindSkill && f.skill != nil && f.skill.Dir == dir && f.skillDoc == relPath {
+			return i
+		}
+	}
+	return -1
 }
 
 // findFileIndex returns the position of the fileItem matching kind+slug
@@ -1369,7 +1611,14 @@ func (m model) confirmDelete() (tea.Model, tea.Cmd) {
 	switch f.kind {
 	case kindSkill:
 		if f.skill != nil {
-			err = canonical.DeleteSkill(m.workspace, f.skill.Dir)
+			switch {
+			case f.skillDoc != "":
+				err = canonical.DeleteSkillDoc(m.workspace, f.skill.Dir, f.skillDoc)
+			case f.skillSubdir != "":
+				err = canonical.DeleteSkillSubdir(m.workspace, f.skill.Dir, f.skillSubdir)
+			default: // dir node or manifest → whole skill
+				err = canonical.DeleteSkill(m.workspace, f.skill.Dir)
+			}
 		}
 	case kindAgent:
 		if f.agent != nil {
@@ -1405,7 +1654,14 @@ func (m model) deleteTargetLabel() string {
 	}
 	f := m.files[m.deleteTarget]
 	if f.kind == kindSkill && f.skill != nil {
-		return "skills/" + f.skill.Dir + "/  (entire folder)"
+		switch {
+		case f.skillDoc != "":
+			return "skills/" + f.skill.Dir + "/" + f.skillDoc
+		case f.skillSubdir != "":
+			return "skills/" + f.skill.Dir + "/" + f.skillSubdir + "/  (subfolder)"
+		default:
+			return "skills/" + f.skill.Dir + "/  (entire folder)"
+		}
 	}
 	return f.label
 }
@@ -1614,6 +1870,10 @@ func (m model) saveCurrentFile(content string) error {
 		}
 		return canonical.SaveRule(m.workspace, f.rule)
 	case kindSkill:
+		// Doc rows save raw markdown; the dir node and manifest both save SKILL.md.
+		if f.skillDoc != "" {
+			return canonical.SaveSkillDoc(m.workspace, f.skill.Dir, f.skillDoc, content)
+		}
 		if err := canonical.ParseSkill(content, f.skill); err != nil {
 			return err
 		}
@@ -1873,14 +2133,26 @@ func (m model) renderFooter() string {
 			[]keyHint{{"esc", "dismiss"}},
 		)
 	case m.screen == screenFiles:
-		canCreate := len(m.files) > 0 && m.files[m.fileIdx].kind != kindAgentsMD
-		canDelete := canCreate && !m.files[m.fileIdx].placeholder
-		canCopy := len(m.files) > 0 && !m.files[m.fileIdx].placeholder
+		cur := fileItem{}
+		if len(m.files) > 0 {
+			cur = m.files[m.fileIdx]
+		}
+		isSubdirNode := cur.kind == kindSkill && cur.skillSubdir != ""
+		canCreate := len(m.files) > 0 && cur.kind != kindAgentsMD
+		canDelete := canCreate && !cur.placeholder
+		canEdit := len(m.files) > 0 && !cur.placeholder && !isSubdirNode
+		canCopy := canEdit
+		onSkill := len(m.files) > 0 && cur.kind == kindSkill && !cur.placeholder
 		actions := []keyHint{}
 		if canCreate {
 			actions = append(actions, keyHint{"n", "new"})
 		}
-		actions = append(actions, keyHint{"e", "edit"})
+		if onSkill {
+			actions = append(actions, keyHint{"a", "add doc"})
+		}
+		if canEdit {
+			actions = append(actions, keyHint{"e", "edit"})
+		}
 		if canDelete {
 			actions = append(actions, keyHint{"d", "delete"})
 		}
@@ -1943,6 +2215,26 @@ func groupHeader(prev, cur fileKind) string {
 	return ""
 }
 
+// rowIndent returns the leading indent for a row's label, by skill-tree depth
+// (capped at the 3rd level for readability). The dir node is flush; the manifest
+// and root docs sit one level in; subdir contents nest further.
+func rowIndent(f fileItem) string {
+	if f.kind != kindSkill || f.isSkillDir || f.placeholder {
+		return ""
+	}
+	depth := 1
+	switch {
+	case f.skillSubdir != "":
+		depth = 1 + strings.Count(f.skillSubdir, "/")
+	case f.skillDoc != "":
+		depth = 1 + strings.Count(f.skillDoc, "/")
+	}
+	if depth > 3 {
+		depth = 3
+	}
+	return strings.Repeat("  ", depth)
+}
+
 // fileListContent renders the left-list block (group headers + file rows)
 // the same way viewFiles does. Pure helper so refresh hooks can stamp the
 // content into m.fileList without going through View().
@@ -1959,6 +2251,7 @@ func (m model) fileListContent() string {
 		prevKind = f.kind
 
 		icon := m.fileStatusIcon(i)
+		indent := rowIndent(f)
 		label := f.label
 		if f.placeholder {
 			label = stylePlaceholderRow.Render(f.label)
@@ -1971,9 +2264,9 @@ func (m model) fileListContent() string {
 			} else {
 				selected = styleSelected.Render(f.label)
 			}
-			row = styleCursorMark.Render("▍ ") + icon + "  " + selected
+			row = styleCursorMark.Render("▍ ") + icon + "  " + indent + selected
 		} else {
-			row = "  " + icon + "  " + label
+			row = "  " + icon + "  " + indent + label
 		}
 		listLines = append(listLines, row)
 	}
@@ -1983,6 +2276,10 @@ func (m model) fileListContent() string {
 // fileRowYOffset returns the 0-based Y inside fileListContent() where the row
 // for m.files[idx] is drawn. Each file row is 1 line; a group transition adds
 // 1 (header) or 2 (blank + header) lines before the row.
+//
+// Multi-row skills (dir node + manifest + docs) need no special handling here:
+// every skill row is kindSkill and 1 line, so they add neither headers nor
+// extra lines — the indent lives in the label, not in row count.
 func (m model) fileRowYOffset(idx int) int {
 	if idx < 0 || idx >= len(m.files) {
 		return 0

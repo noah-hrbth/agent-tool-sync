@@ -56,11 +56,13 @@ func renderVibe(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 			{key: "description", value: skill.Description},
 			{key: "allowed-tools", value: skill.AllowedTools},
 		}, skill.Body)
+		skillDir := filepath.Join(vibeDir, "skills", skill.Dir)
 		files = append(files, FileWrite{
 			Concept: ConceptSkills,
-			Path:    filepath.Join(vibeDir, "skills", skill.Dir, "SKILL.md"),
+			Path:    filepath.Join(skillDir, "SKILL.md"),
 			Content: []byte(content),
 		})
+		files = appendSkillDocs(files, skillDir, skill.Docs)
 	}
 
 	// Agents: TOML config + separate prompt file referenced by system_prompt_id.

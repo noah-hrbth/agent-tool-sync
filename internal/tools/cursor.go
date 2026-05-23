@@ -66,11 +66,13 @@ func renderCursor(c *canonical.Canonical, scope Scope) ([]FileWrite, error) {
 			{key: "globs", value: skill.Paths},
 			{key: "disable-model-invocation", value: skill.DisableModelInvocation},
 		}, skill.Body)
+		skillDir := filepath.Join(cursorDir, "skills", skill.Dir)
 		files = append(files, FileWrite{
 			Concept: ConceptSkills,
-			Path:    filepath.Join(cursorDir, "skills", skill.Dir, "SKILL.md"),
+			Path:    filepath.Join(skillDir, "SKILL.md"),
 			Content: []byte(content),
 		})
+		files = appendSkillDocs(files, skillDir, skill.Docs)
 	}
 
 	for _, agent := range c.Agents {
