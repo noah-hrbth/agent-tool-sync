@@ -6,8 +6,37 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/noah-hrbth/agentsync/internal/canonical"
 	"github.com/noah-hrbth/agentsync/internal/syncer"
+	"github.com/noah-hrbth/agentsync/internal/tools"
 )
+
+// renderToolFile renders the registered tool with the given Key at scope and
+// returns the rendered bytes of the FileWrite at wantPath. It drives adopt tests
+// from the adapter's ACTUAL output instead of hand-written fixtures, so the
+// render↔adopt round-trip (incl. YAML quoting) is exercised, not assumed.
+func renderToolFile(t *testing.T, key string, c *canonical.Canonical, scope tools.Scope, wantPath string) []byte {
+	t.Helper()
+	for _, tool := range tools.All() {
+		if tool.Meta.Key != key {
+			continue
+		}
+		writes, err := tool.Render(c, scope)
+		if err != nil {
+			t.Fatalf("%s render: %v", key, err)
+		}
+		var got []string
+		for _, fw := range writes {
+			if fw.Path == wantPath {
+				return fw.Content
+			}
+			got = append(got, fw.Path)
+		}
+		t.Fatalf("%s render: no file at %q (rendered %v)", key, wantPath, got)
+	}
+	t.Fatalf("tool %q not registered", key)
+	return nil
+}
 
 func buildAdoptWorkspace(t *testing.T) string {
 	t.Helper()
@@ -437,5 +466,151 @@ func TestAdoptClineRule(t *testing.T) {
 				t.Error("canonical Cline rule empty")
 			}
 		})
+	}
+}
+
+func TestAdoptPiCommand(t *testing.T) {
+	ws := buildAdoptWorkspace(t)
+
+	// Drive adopt from the Pi adapter's ACTUAL render output (not a hand-quoted
+	// literal). This exercises the full render↔adopt round-trip, including the
+	// YAML-quoting of the bracketed argument-hint that a raw "[style-name]" would
+	// otherwise break (cannot unmarshal !!seq into string). allowed-tools/model are
+	// set to confirm Pi drops them — they are not Pi prompt fields.
+	c := &canonical.Canonical{Commands: []*canonical.Command{{
+		Filename:     "style",
+		Description:  "Apply code style",
+		ArgumentHint: "[style-name]",
+		AllowedTools: []string{"Read", "Write"},
+		Model:        "sonnet",
+		Body:         "Format this file.\n",
+	}}}
+	rendered := renderToolFile(t, "pi", c, tools.ScopeProject, ".pi/prompts/style.md")
+	if err := os.MkdirAll(filepath.Join(ws, ".pi", "prompts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws, ".pi", "prompts", "style.md"), rendered, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := syncer.AdoptExternal(ws, ".pi/prompts/style.md"); err != nil {
+		t.Fatalf("adopt Pi command: %v", err)
+	}
+
+	// Verify canonical Command was saved with the bracketed hint preserved by value.
+	saved, err := os.ReadFile(filepath.Join(ws, ".agentsync", "commands", "style.md"))
+	if err != nil {
+		t.Fatalf("read canonical command: %v", err)
+	}
+	for _, want := range []string{"description: Apply code style", "[style-name]", "Format this file."} {
+		if !strings.Contains(string(saved), want) {
+			t.Errorf("canonical command missing %q:\n%s", want, string(saved))
+		}
+	}
+	// Pi drops allowed-tools/model on render, so they must not survive the round-trip.
+	for _, omit := range []string{"allowed-tools", "model:"} {
+		if strings.Contains(string(saved), omit) {
+			t.Errorf("canonical command should not contain %q (Pi drops it):\n%s", omit, string(saved))
+		}
+	}
+}
+
+func TestAdoptPiCommandUser(t *testing.T) {
+	ws := buildAdoptWorkspace(t)
+	if err := os.MkdirAll(filepath.Join(ws, ".pi", "agent", "prompts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Pi prompts only support description and argument-hint
+	promptContent := `---
+description: User scope style
+argument-hint: "[preset]"
+---
+Apply user style.
+`
+	if err := os.WriteFile(filepath.Join(ws, ".pi", "agent", "prompts", "style.md"), []byte(promptContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := syncer.AdoptExternal(ws, ".pi/agent/prompts/style.md"); err != nil {
+		t.Fatalf("adopt Pi user command: %v", err)
+	}
+
+	// Verify canonical Command was saved
+	saved, err := os.ReadFile(filepath.Join(ws, ".agentsync", "commands", "style.md"))
+	if err != nil {
+		t.Fatalf("read canonical command: %v", err)
+	}
+	if !strings.Contains(string(saved), "description: User scope style") {
+		t.Errorf("canonical user command missing description: %s", string(saved))
+	}
+}
+
+func TestAdoptPiSkill(t *testing.T) {
+	ws := buildAdoptWorkspace(t)
+	if err := os.MkdirAll(filepath.Join(ws, ".pi", "skills", "code-review"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	skillContent := `---
+name: code-review
+description: Review pull requests
+allowed-tools: [Read, Grep]
+disable-model-invocation: true
+---
+Review this code.
+`
+	if err := os.WriteFile(filepath.Join(ws, ".pi", "skills", "code-review", "SKILL.md"), []byte(skillContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := syncer.AdoptExternal(ws, ".pi/skills/code-review/SKILL.md"); err != nil {
+		t.Fatalf("adopt Pi skill: %v", err)
+	}
+
+	// Verify canonical Skill was saved
+	saved, err := os.ReadFile(filepath.Join(ws, ".agentsync", "skills", "code-review", "SKILL.md"))
+	if err != nil {
+		t.Fatalf("read canonical skill: %v", err)
+	}
+	if !strings.Contains(string(saved), "name: code-review") {
+		t.Errorf("canonical skill missing name: %s", string(saved))
+	}
+	if !strings.Contains(string(saved), "description: Review pull requests") {
+		t.Errorf("canonical skill missing description: %s", string(saved))
+	}
+	// allowed-tools may be saved as inline array or YAML list - just check both fields exist
+	if !strings.Contains(string(saved), "allowed-tools:") {
+		t.Errorf("canonical skill missing allowed-tools field: %s", string(saved))
+	}
+	if !strings.Contains(string(saved), "Read") || !strings.Contains(string(saved), "Grep") {
+		t.Errorf("canonical skill missing allowed-tools values (Read, Grep): %s", string(saved))
+	}
+	if !strings.Contains(string(saved), "disable-model-invocation: true") {
+		t.Errorf("canonical skill missing disable-model-invocation: %s", string(saved))
+	}
+	if !strings.Contains(string(saved), "Review this code.") {
+		t.Errorf("canonical skill missing body: %s", string(saved))
+	}
+}
+
+func TestAdoptPiRootMemoryUser(t *testing.T) {
+	ws := buildAdoptWorkspace(t)
+	if err := os.MkdirAll(filepath.Join(ws, ".pi", "agent"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "# Pi user-scope root memory\n"
+	if err := os.WriteFile(filepath.Join(ws, ".pi", "agent", "AGENTS.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := syncer.AdoptExternal(ws, ".pi/agent/AGENTS.md"); err != nil {
+		t.Fatalf("adopt Pi user root memory: %v", err)
+	}
+
+	saved, err := os.ReadFile(filepath.Join(ws, ".agentsync", "AGENTS.md"))
+	if err != nil {
+		t.Fatalf("read canonical AGENTS.md: %v", err)
+	}
+	if string(saved) != content {
+		t.Errorf("canonical AGENTS.md: got %q, want %q", string(saved), content)
 	}
 }

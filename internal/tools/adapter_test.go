@@ -584,6 +584,7 @@ func TestSupportsScope(t *testing.T) {
 		{"JetBrains Junie", true},
 		{"Mistral Vibe", true},
 		{"GitHub Copilot", true},
+		{"Pi (CLI)", true},
 	}
 	byName := map[string]tools.Tool{}
 	for _, a := range tools.All() {
@@ -673,6 +674,28 @@ func TestUserScopeRendersDifferentPaths(t *testing.T) {
 	}
 	if !containsPath(geminiUser, ".gemini/GEMINI.md") {
 		t.Error("Gemini user: expected .gemini/GEMINI.md")
+	}
+
+	// Pi: project root memory = AGENTS.md (workspace root), user = .pi/agent/AGENTS.md
+	// Project skills = .pi/skills/, user skills = .pi/agent/skills/
+	// Project prompts = .pi/prompts/, user prompts = .pi/agent/prompts/
+	pi := adapterByName(t, "Pi (CLI)")
+	piProject, _ := pi.Render(c, tools.ScopeProject)
+	piUser, _ := pi.Render(c, tools.ScopeUser)
+	if !containsPath(piProject, "AGENTS.md") {
+		t.Error("Pi project: expected AGENTS.md at workspace root")
+	}
+	if containsPath(piProject, ".pi/agent/AGENTS.md") {
+		t.Error("Pi project: did not expect .pi/agent/AGENTS.md (that's the user-scope path)")
+	}
+	if !containsPath(piUser, ".pi/agent/AGENTS.md") {
+		t.Error("Pi user: expected .pi/agent/AGENTS.md")
+	}
+	if !containsPath(piProject, ".pi/skills/demo/SKILL.md") {
+		t.Error("Pi project skills: expected .pi/skills/demo/SKILL.md")
+	}
+	if !containsPath(piUser, ".pi/agent/skills/demo/SKILL.md") {
+		t.Error("Pi user skills: expected .pi/agent/skills/demo/SKILL.md")
 	}
 }
 
@@ -1004,18 +1027,23 @@ func pathsOf(writes []tools.FileWrite) []string {
 	return out
 }
 
-// --- Mistral Vibe ---
+// --- Registry order ---
 
-func TestVibeRegisteredAtIndex8(t *testing.T) {
+// TestRegistryTailOrder pins the registry length and the trailing slots
+// (Vibe, Copilot, Pi) so adapter additions keep a stable, intentional order.
+func TestRegistryTailOrder(t *testing.T) {
 	all := tools.All()
-	if len(all) != 10 {
-		t.Fatalf("tools.All(): want 10 adapters, got %d", len(all))
+	if len(all) != 11 {
+		t.Fatalf("tools.All(): want 11 adapters, got %d", len(all))
 	}
 	if all[8].Meta.Name != "Mistral Vibe" {
 		t.Errorf("tools.All()[8].Meta.Name: want %q, got %q", "Mistral Vibe", all[8].Meta.Name)
 	}
 	if all[9].Meta.Name != "GitHub Copilot" {
 		t.Errorf("tools.All()[9].Meta.Name: want %q, got %q", "GitHub Copilot", all[9].Meta.Name)
+	}
+	if all[10].Meta.Name != "Pi (CLI)" {
+		t.Errorf("tools.All()[10].Meta.Name: want %q, got %q", "Pi (CLI)", all[10].Meta.Name)
 	}
 }
 
@@ -1265,5 +1293,330 @@ func TestVibeCommandsDeprecated(t *testing.T) {
 	}
 	if compat.Replacement != "skills" {
 		t.Errorf("Vibe commands Replacement: got %q, want %q", compat.Replacement, "skills")
+	}
+}
+
+// ============================================================================
+// Pi (CLI) adapter tests
+// ============================================================================
+
+func TestPiMeta(t *testing.T) {
+	pi := adapterByName(t, "Pi (CLI)")
+
+	// Verify all 4 concepts are listed explicitly
+	for _, concept := range []tools.Concept{
+		tools.ConceptRules,
+		tools.ConceptSkills,
+		tools.ConceptAgents,
+		tools.ConceptCommands,
+	} {
+		compat := pi.Meta.Supports(concept)
+		switch concept {
+		case tools.ConceptAgents:
+			if compat.Supported {
+				t.Errorf("Pi.Supports(%v): want Supported=false, got true", concept)
+			}
+			if compat.Reason == "" {
+				t.Errorf("Pi.Supports(%v): unsupported agents should have Reason", concept)
+			}
+		default:
+			if !compat.Supported {
+				t.Errorf("Pi.Supports(%v): want supported=true, got false (%s)", concept, compat.Reason)
+			}
+		}
+	}
+
+	// Both scopes supported
+	for _, scope := range []tools.Scope{tools.ScopeProject, tools.ScopeUser} {
+		if !pi.Meta.SupportsScope(scope).Supported {
+			t.Errorf("Pi should support %v scope", scope)
+		}
+	}
+
+	// ConceptInfo should be populated
+	for _, concept := range []tools.Concept{
+		tools.ConceptRules,
+		tools.ConceptSkills,
+		tools.ConceptAgents,
+		tools.ConceptCommands,
+	} {
+		if pi.Meta.Info(concept) == "" {
+			t.Errorf("Pi should have ConceptInfo for %v", concept)
+		}
+	}
+}
+
+func TestRenderPiRootMemory(t *testing.T) {
+	pi := adapterByName(t, "Pi (CLI)")
+	c := &canonical.Canonical{
+		AgentsMD: "# Project rules\n",
+		Rules: []*canonical.Rule{
+			{
+				Filename: "style-guide",
+				Body:     "Use const.\n",
+			},
+		},
+	}
+
+	// Project scope: AGENTS.md at workspace root
+	writes, err := pi.Render(c, tools.ScopeProject)
+	if err != nil {
+		t.Fatalf("Render project: %v", err)
+	}
+
+	var projectRoot *tools.FileWrite
+	for i := range writes {
+		if writes[i].Path == "AGENTS.md" {
+			projectRoot = &writes[i]
+			break
+		}
+	}
+	if projectRoot == nil {
+		t.Fatal("expected AGENTS.md at workspace root for project scope")
+	}
+	content := string(projectRoot.Content)
+	if !strings.Contains(content, "# Project rules") {
+		t.Errorf("expected AgentsMD in root: got %q", content)
+	}
+	if !strings.Contains(content, "## style-guide") {
+		t.Errorf("expected rule heading in root: got %q", content)
+	}
+	if !strings.Contains(content, "Use const.") {
+		t.Errorf("expected rule body in root: got %q", content)
+	}
+
+	// User scope: .pi/agent/AGENTS.md
+	writesUser, err := pi.Render(c, tools.ScopeUser)
+	if err != nil {
+		t.Fatalf("Render user: %v", err)
+	}
+
+	var userRoot *tools.FileWrite
+	for i := range writesUser {
+		if writesUser[i].Path == ".pi/agent/AGENTS.md" {
+			userRoot = &writesUser[i]
+			break
+		}
+	}
+	if userRoot == nil {
+		t.Fatal("expected .pi/agent/AGENTS.md for user scope")
+	}
+
+	// Content should be identical to project scope (same flattening)
+	userContent := string(userRoot.Content)
+	if userContent != content {
+		t.Errorf("user scope content differs from project:\n  project: %q\n  user: %q", content, userContent)
+	}
+
+	// No per-rule files should exist
+	for _, w := range writes {
+		if strings.Contains(w.Path, "rules/") {
+			t.Errorf("unexpected rules-dir file for Pi: %s", w.Path)
+		}
+	}
+	for _, w := range writesUser {
+		if strings.Contains(w.Path, "rules/") {
+			t.Errorf("unexpected rules-dir file for Pi user: %s", w.Path)
+		}
+	}
+}
+
+func TestRenderPiSkills(t *testing.T) {
+	pi := adapterByName(t, "Pi (CLI)")
+
+	c := &canonical.Canonical{
+		Skills: []*canonical.Skill{
+			{
+				Dir:                    "code-review",
+				Name:                   "code-review",
+				Description:            "Review pull requests",
+				AllowedTools:           []string{"Read", "Grep"},
+				DisableModelInvocation: true,
+				Paths:                  []string{"src/**/*.ts", "lib/**/*.ts"},
+				Body:                   "Review this code.\n",
+				Docs: []canonical.SkillDoc{
+					{RelPath: "examples/prompt.md", Content: "Example prompt\n"},
+				},
+			},
+		},
+	}
+
+	// Project scope
+	writes, err := pi.Render(c, tools.ScopeProject)
+	if err != nil {
+		t.Fatalf("Render project: %v", err)
+	}
+
+	if !containsPath(writes, ".pi/skills/code-review/SKILL.md") {
+		t.Errorf("expected .pi/skills/code-review/SKILL.md for project, got %v", pathsOf(writes))
+	}
+
+	var skillWrite *tools.FileWrite
+	for i := range writes {
+		if writes[i].Path == ".pi/skills/code-review/SKILL.md" {
+			skillWrite = &writes[i]
+			break
+		}
+	}
+	if skillWrite == nil {
+		t.Fatal("no ConceptSkills write found for project scope")
+	}
+
+	content := string(skillWrite.Content)
+	// Should have name, description, allowed-tools, disable-model-invocation
+	for _, want := range []string{"name: code-review", "description: Review pull requests", "allowed-tools: [Read, Grep]", "disable-model-invocation: true"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("expected %q in Pi skill frontmatter, got:\n%s", want, content)
+		}
+	}
+	// Should NOT have paths field
+	if strings.Contains(content, "paths:") {
+		t.Errorf("Pi skill should NOT contain paths field (Pi has no path scoping):\n%s", content)
+	}
+	// Should have body
+	if !strings.Contains(content, "Review this code.") {
+		t.Errorf("expected body in Pi skill, got:\n%s", content)
+	}
+	// Should have skill doc
+	if !containsPath(writes, ".pi/skills/code-review/examples/prompt.md") {
+		t.Errorf("expected skill doc .pi/skills/code-review/examples/prompt.md, got %v", pathsOf(writes))
+	}
+
+	// User scope
+	writesUser, err := pi.Render(c, tools.ScopeUser)
+	if err != nil {
+		t.Fatalf("Render user: %v", err)
+	}
+
+	if !containsPath(writesUser, ".pi/agent/skills/code-review/SKILL.md") {
+		t.Errorf("expected .pi/agent/skills/code-review/SKILL.md for user, got %v", pathsOf(writesUser))
+	}
+
+	var userSkillWrite *tools.FileWrite
+	for i := range writesUser {
+		if writesUser[i].Path == ".pi/agent/skills/code-review/SKILL.md" {
+			userSkillWrite = &writesUser[i]
+			break
+		}
+	}
+	if userSkillWrite == nil {
+		t.Fatal("no ConceptSkills write found for user scope")
+	}
+
+	userContent := string(userSkillWrite.Content)
+	// Same validation for user scope
+	if !strings.Contains(userContent, "name: code-review") {
+		t.Errorf("expected name in user skill frontmatter, got:\n%s", userContent)
+	}
+	if strings.Contains(userContent, "paths:") {
+		t.Errorf("Pi user skill should NOT contain paths field:\n%s", userContent)
+	}
+}
+
+func TestRenderPiCommands(t *testing.T) {
+	pi := adapterByName(t, "Pi (CLI)")
+
+	c := &canonical.Canonical{
+		Commands: []*canonical.Command{
+			{
+				Filename:     "style",
+				Description:  "Apply code style",
+				ArgumentHint: "[style-name]",
+				AllowedTools: []string{"Read", "Write"},
+				Model:        "sonnet",
+				Body:         "Format this file.\n",
+			},
+		},
+	}
+
+	// Project scope
+	writes, err := pi.Render(c, tools.ScopeProject)
+	if err != nil {
+		t.Fatalf("Render project: %v", err)
+	}
+
+	if !containsPath(writes, ".pi/prompts/style.md") {
+		t.Errorf("expected .pi/prompts/style.md for project, got %v", pathsOf(writes))
+	}
+
+	var cmdWrite *tools.FileWrite
+	for i := range writes {
+		if writes[i].Path == ".pi/prompts/style.md" {
+			cmdWrite = &writes[i]
+			break
+		}
+	}
+	if cmdWrite == nil {
+		t.Fatal("no prompts write found for project scope")
+	}
+
+	content := string(cmdWrite.Content)
+	// Should have description and argument-hint. The bracketed hint must be YAML-quoted
+	// (leading "[" would otherwise parse as a sequence and break the adopt round-trip).
+	for _, want := range []string{"description: Apply code style", `argument-hint: "[style-name]"`} {
+		if !strings.Contains(content, want) {
+			t.Errorf("expected %q in Pi prompt frontmatter, got:\n%s", want, content)
+		}
+	}
+	// Should NOT have allowed-tools or model (Pi prompts don't support these)
+	for _, omit := range []string{"allowed-tools:", "model:"} {
+		if strings.Contains(content, omit) {
+			t.Errorf("Pi prompt should NOT contain %q, got:\n%s", omit, content)
+		}
+	}
+	// Should have body
+	if !strings.Contains(content, "Format this file.") {
+		t.Errorf("expected body in Pi prompt, got:\n%s", content)
+	}
+
+	// User scope
+	writesUser, err := pi.Render(c, tools.ScopeUser)
+	if err != nil {
+		t.Fatalf("Render user: %v", err)
+	}
+
+	if !containsPath(writesUser, ".pi/agent/prompts/style.md") {
+		t.Errorf("expected .pi/agent/prompts/style.md for user, got %v", pathsOf(writesUser))
+	}
+}
+
+func TestRenderPiSkipsAgents(t *testing.T) {
+	pi := adapterByName(t, "Pi (CLI)")
+
+	c := &canonical.Canonical{
+		Agents: []*canonical.Agent{
+			{
+				Filename:    "debugger",
+				Name:        "debugger",
+				Description: "find bugs",
+				Tools:       []string{"Read", "Grep"},
+				Model:       "sonnet",
+				Body:        "Debug this.\n",
+			},
+		},
+	}
+
+	// Project scope
+	writes, err := pi.Render(c, tools.ScopeProject)
+	if err != nil {
+		t.Fatalf("Render project: %v", err)
+	}
+
+	for _, w := range writes {
+		if strings.Contains(w.Path, "/agents/") {
+			t.Errorf("Pi should not render agents: found %s", w.Path)
+		}
+	}
+
+	// User scope
+	writesUser, err := pi.Render(c, tools.ScopeUser)
+	if err != nil {
+		t.Fatalf("Render user: %v", err)
+	}
+
+	for _, w := range writesUser {
+		if strings.Contains(w.Path, "/agents/") {
+			t.Errorf("Pi should not render agents at user scope: found %s", w.Path)
+		}
 	}
 }

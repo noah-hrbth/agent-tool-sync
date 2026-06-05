@@ -127,6 +127,7 @@ func TestComputeFullRegisteredAdapterSet(t *testing.T) {
 		".gemini/",
 		".junie/",
 		".opencode/",
+		".pi/",
 		".rules",
 		".vibe/",
 		"CLAUDE.md",

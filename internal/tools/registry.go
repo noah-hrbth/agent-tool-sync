@@ -14,6 +14,7 @@ func All() []Tool {
 		{Meta: junieMeta, Render: renderJunie},
 		{Meta: vibeMeta, Render: renderVibe},
 		{Meta: copilotMeta, Render: renderCopilot},
+		{Meta: piMeta, Render: renderPi},
 	}
 }
 

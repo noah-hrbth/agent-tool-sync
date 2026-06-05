@@ -688,5 +688,74 @@
         }
       }
     ]
+  },
+  {
+    "Name": "Pi (CLI)",
+    "Concepts": [
+      {
+        "Concept": "rules",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Root memory at AGENTS.md (project) or ~/.pi/agent/AGENTS.md (user). Per-file rules append to AGENTS.md — Pi has no per-rule files."
+      },
+      {
+        "Concept": "skills",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Skills at .pi/skills/\u003cdir\u003e/SKILL.md (project) or ~/.pi/agent/skills/ (user). The paths field is dropped — Pi skills have no path scoping."
+      },
+      {
+        "Concept": "agents",
+        "Supports": {
+          "Supported": false,
+          "Reason": "Pi has no file-defined sub-agents",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Pi has no file-defined sub-agents; agents spawn via the /spawn command and TypeScript extensions, not markdown."
+      },
+      {
+        "Concept": "commands",
+        "Supports": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        },
+        "Alias": "",
+        "ConceptInfo": "Prompts (= slash commands) at .pi/prompts/\u003cname\u003e.md (project) or ~/.pi/agent/prompts/ (user)."
+      }
+    ],
+    "Scopes": [
+      {
+        "Scope": "project",
+        "SupportsScope": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        }
+      },
+      {
+        "Scope": "user",
+        "SupportsScope": {
+          "Supported": true,
+          "Reason": "",
+          "Deprecated": false,
+          "Replacement": ""
+        }
+      }
+    ]
   }
 ]

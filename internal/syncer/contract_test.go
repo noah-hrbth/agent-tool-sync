@@ -20,7 +20,9 @@ func TestRenderAdoptContract(t *testing.T) {
 		AgentsMD: "# Probe\n\nRoot memory body.\n",
 		Rules: []*canonical.Rule{{
 			Filename: "sample-rule", Description: "probe rule",
-			Paths: []string{"src/**/*.ts"}, Body: "Rule body.\n",
+			// Multi-path so Copilot brace-expands to applyTo "{a,b}". The leading "{"
+			// is a YAML flow indicator and must be quoted, else adopt fails (!!map).
+			Paths: []string{"src/**/*.ts", "test/**/*.ts"}, Body: "Rule body.\n",
 		}},
 		Skills: []*canonical.Skill{{
 			Dir: "sample-skill", Name: "sample-skill",
@@ -34,7 +36,10 @@ func TestRenderAdoptContract(t *testing.T) {
 		}},
 		Commands: []*canonical.Command{{
 			Filename: "sample-command", Description: "probe command",
-			Body: "Command body.\n",
+			// Bracketed argument-hint is the common case and a YAML-sequence trap:
+			// it must be quoted on render or adopt fails (cannot unmarshal !!seq).
+			ArgumentHint: "[arg]",
+			Body:         "Command body.\n",
 		}},
 	}
 

@@ -26,6 +26,8 @@ const (
 	copilotDirProject  = ".github"
 	copilotDirUser     = ".copilot"
 	zedRulesFile       = ".rules"
+	piDirProject       = ".pi"
+	piDirUser          = ".pi/agent"
 )
 
 // Concept sub-directory and skill manifest filename, shared by all tools.
@@ -52,6 +54,7 @@ func rootMemoryFiles() []string {
 		".vibe/AGENTS.md",
 		".github/copilot-instructions.md",
 		".copilot/copilot-instructions.md",
+		".pi/agent/AGENTS.md",
 	}
 }
 
@@ -67,6 +70,8 @@ func SkillDirPrefixes() []string {
 		vibeDir + "/skills/",
 		copilotDirProject + "/skills/",
 		copilotDirUser + "/skills/",
+		piDirProject + "/skills/",
+		piDirUser + "/skills/",
 	}
 }
 

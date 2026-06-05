@@ -8,6 +8,7 @@
 - [ ] Roo Code
 - [x] GitHub Copilot
 - [x] JetBrains Junie
+- [x] Pi (CLI)
 - [ ] Crush
 - [ ] Goose
 - [ ] Amazon Q

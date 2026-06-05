@@ -3,11 +3,26 @@ package tools
 import (
 	"fmt"
 	"strings"
+
+	yaml "github.com/goccy/go-yaml"
 )
 
 type fmField struct {
 	key   string
 	value any // string, []string, or bool
+}
+
+// yamlScalar renders s as a YAML-safe scalar, quoting only when a plain scalar
+// would misparse — leading flow indicators ([ {), reserved words (true/yes/null),
+// numeric-looking values, embedded ": ", etc. Plain values pass through unquoted.
+// Without this, e.g. an argument-hint of "[arg]" emits as a YAML sequence and
+// breaks the adopt round-trip (cannot unmarshal !!seq into string).
+func yamlScalar(s string) string {
+	b, err := yaml.Marshal(s)
+	if err != nil {
+		return s // unreachable for plain strings
+	}
+	return strings.TrimRight(string(b), "\n")
 }
 
 // buildMDFrontmatter builds a markdown file with YAML frontmatter.
@@ -19,7 +34,7 @@ func buildMDFrontmatter(fields []fmField, body string) string {
 		switch v := f.value.(type) {
 		case string:
 			if v != "" {
-				fmt.Fprintf(&sb, "%s: %s\n", f.key, v)
+				fmt.Fprintf(&sb, "%s: %s\n", f.key, yamlScalar(v))
 			}
 		case []string:
 			if len(v) > 0 {

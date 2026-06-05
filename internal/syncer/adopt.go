@@ -111,6 +111,24 @@ func AdoptExternal(workspace, path string) error {
 		}
 		return canonical.SaveCommand(workspace, &cmd)
 
+	case matchPiPromptPath(path):
+		// Pi prompts (slash commands) support description and argument-hint only.
+		var fm struct {
+			Description  string `yaml:"description"`
+			ArgumentHint string `yaml:"argument-hint"`
+		}
+		body, err := frontmatter.Parse(strings.NewReader(content), &fm)
+		if err != nil {
+			return fmt.Errorf("parse pi prompt frontmatter: %w", err)
+		}
+		cmd := canonical.Command{
+			Filename:     strings.TrimSuffix(filepath.Base(path), ".md"),
+			Description:  fm.Description,
+			ArgumentHint: fm.ArgumentHint,
+			Body:         string(body),
+		}
+		return canonical.SaveCommand(workspace, &cmd)
+
 	case matchSkillPath(path):
 		// Must precede matchRulePath: a skill doc may legally live under a
 		// "<skill>/rules/" subfolder, which the generic /rules/ matcher would
@@ -335,5 +353,24 @@ func matchCopilotPromptPath(path string) bool {
 		return false
 	}
 	rest := strings.TrimPrefix(path, ".github/prompts/")
+	return !strings.Contains(rest, "/")
+}
+
+// matchPiPromptPath returns true for Pi prompt files (commands concept).
+// Pi prompts are at .pi/prompts/<name>.md (project) or .pi/agent/prompts/<name>.md (user).
+// Single-level only — nested subdirectories under prompts/ are not adopted.
+func matchPiPromptPath(path string) bool {
+	if !strings.HasSuffix(path, ".md") {
+		return false
+	}
+	var rest string
+	switch {
+	case strings.HasPrefix(path, ".pi/prompts/"):
+		rest = strings.TrimPrefix(path, ".pi/prompts/")
+	case strings.HasPrefix(path, ".pi/agent/prompts/"):
+		rest = strings.TrimPrefix(path, ".pi/agent/prompts/")
+	default:
+		return false
+	}
 	return !strings.Contains(rest, "/")
 }

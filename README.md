@@ -1,6 +1,6 @@
 # agentsync
 
-Maintain AI tool configs in one place and sync them to Claude Code, OpenCode, Cursor, Gemini CLI, Codex CLI, Cline, JetBrains Junie, Mistral Vibe, and Zed.
+Maintain AI tool configs in one place and sync them to Claude Code, OpenCode, Cursor, Gemini CLI, Codex CLI, Cline, JetBrains Junie, Mistral Vibe, Zed, and Pi.
 
 ## Install
 
@@ -64,6 +64,7 @@ The two layers stack: each tool reads its user-level config plus any project-lev
 - **JetBrains Junie** — root `AGENTS.md` is **project-only** (Junie has no user-scope guidelines path); skills/agents/commands at `.junie/` are honoured at both scopes.
 - **Mistral Vibe** — rules flatten into `AGENTS.md` (project root) or `~/.vibe/AGENTS.md` (user) — Vibe has no per-file/glob rules; skills at `.vibe/skills/<dir>/SKILL.md`; agents emit a TOML config at `.vibe/agents/<name>.toml` plus a Markdown prompt at `.vibe/prompts/<name>.md` referenced by `system_prompt_id`; commands render as user-invocable skills under `.vibe/skills/`.
 - **GitHub Copilot** — root memory at `.github/copilot-instructions.md` (project) or `~/.copilot/copilot-instructions.md` (user); per-rule files at `.github/instructions/<name>.instructions.md` with a single `applyTo:` glob (multi-path canonical Rules are brace-expanded into `{a,b}`); skills at `.github/skills/<dir>/SKILL.md` (skill directory name must match `name:`); custom agents at `.github/agents/<name>.agent.md` (legacy `.chatmode.md` is not emitted); prompt files at `.github/prompts/<name>.prompt.md` (project only — Copilot has no documented user-level prompts directory). `.github/` is excluded from agentsync's managed gitignore block to keep CI workflows tracked.
+- **Pi (CLI)** — root memory at `AGENTS.md` (project) or `~/.pi/agent/AGENTS.md` (user). Skills at `.pi/skills/<dir>/SKILL.md` (project) or `~/.pi/agent/skills/` (user). Prompts (= slash commands) at `.pi/prompts/<name>.md` (project) or `~/.pi/agent/prompts/` (user). Skills do **not** support the `paths` field — Pi has no path scoping.
 
 ## Supported AI tools
 
@@ -79,8 +80,9 @@ The two layers stack: each tool reads its user-level config plus any project-lev
 | Mistral Vibe | `AGENTS.md` (workspace root; `~/.vibe/AGENTS.md` at user scope) | appended to root | `.vibe/skills/<dir>/SKILL.md` | `.vibe/agents/<name>.toml` + `.vibe/prompts/<name>.md` | `⚠ deprecated → skills` | `~/.vibe/` |
 | GitHub Copilot | `.github/copilot-instructions.md` (workspace; `~/.copilot/copilot-instructions.md` at user scope) | `.github/instructions/<name>.instructions.md` (`applyTo:` glob; user: `~/.copilot/instructions/`) | `.github/skills/<dir>/SKILL.md` (user: `~/.copilot/skills/`) | `.github/agents/<name>.agent.md` (user: `~/.copilot/agents/`) | `.github/prompts/<name>.prompt.md` (project only) | `~/.copilot/` |
 | Zed | `.rules` (workspace root) | appended to root | — | — | — | `~/.config/zed/` |
+| Pi (CLI) | `AGENTS.md` (workspace root; `~/.pi/agent/AGENTS.md` at user scope) | appended to root | `.pi/skills/<dir>/SKILL.md` | — | `.pi/prompts/<name>.md` | `~/.pi/` |
 
-`AGENTS.md` at the workspace root is shared by OpenCode and Codex CLI — both tools read it natively.
+`AGENTS.md` at the workspace root is shared by OpenCode, Codex CLI, and Pi — all three tools read it natively.
 
 Zed reads its rules file from the workspace root, so `.rules` lands there instead of in a tool-namespaced folder. Zed has no native concept for skills, file-defined agents, or user-defined slash commands; agentsync skips those for Zed.
 
@@ -178,25 +180,25 @@ Command prompt body in markdown.
 
 ## Concept compatibility
 
-| Concept | Claude Code | OpenCode | Cursor | Gemini CLI | Codex CLI | Cline | JetBrains Junie | Mistral Vibe | GitHub Copilot | Zed |
-|---|---|---|---|---|---|---|---|---|---|---|
-| Rules | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Skills | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
-| Agents | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ | ✗ |
-| Commands | ⚠ deprecated | ✓ | ⚠ deprecated | ✓ | ⚠ deprecated | ✓ | ✓ | ⚠ deprecated | ✓ (project only) | ✗ |
+| Concept | Claude Code | OpenCode | Cursor | Gemini CLI | Codex CLI | Cline | JetBrains Junie | Mistral Vibe | GitHub Copilot | Zed | Pi (CLI) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Rules | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Skills | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| Agents | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ | ✗ | ✗ |
+| Commands | ⚠ deprecated | ✓ | ⚠ deprecated | ✓ | ⚠ deprecated | ✓ | ✓ | ⚠ deprecated | ✓ (project only) | ✗ | ✓ |
 
 When editing a skill, agent, or command in the TUI, tools that don't support that concept are shown with `✗` and a reason, and are skipped during sync.
 
 ### Field translation across tools
 
-| Canonical field | Claude Code | Cursor | OpenCode | Gemini CLI | Codex CLI | Cline | JetBrains Junie | Mistral Vibe | GitHub Copilot | Zed |
-|---|---|---|---|---|---|---|---|---|---|---|
-| `paths` (skill) | `paths:` | `globs:` | — | — | — | — | — | — | — | — |
-| `paths` (rule) | `paths:` | `globs:` | — | — | — | `paths:` | — | — | `applyTo:` (single glob; multi-path brace-expanded) | — |
-| `allowed-tools` | `allowed-tools:` | `allowed-tools:` | `allowed-tools:` | — | — | — | — | `allowed-tools:` | `tools:` (commands only) | — |
-| `disable-model-invocation` | `disable-model-invocation:` | `disable-model-invocation:` | `disable-model-invocation:` | — | — | — | — | — | — | — |
-| `tools` (agent) | `tools:` | — | `tools:` | `tools:` | — | — | `tools:` | `enabled_tools` (TOML) | `tools:` | — |
-| `model` (agent) | `model:` | `model:` | `model:` | `model:` | `model:` | — | `model:` | `active_model` (TOML) | `model:` | — |
+| Canonical field | Claude Code | Cursor | OpenCode | Gemini CLI | Codex CLI | Cline | JetBrains Junie | Mistral Vibe | GitHub Copilot | Zed | Pi (CLI) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `paths` (skill) | `paths:` | `globs:` | — | — | — | — | — | — | — | — | — |
+| `paths` (rule) | `paths:` | `globs:` | — | — | — | `paths:` | — | — | `applyTo:` (single glob; multi-path brace-expanded) | — | — |
+| `allowed-tools` | `allowed-tools:` | `allowed-tools:` | `allowed-tools:` | — | — | — | — | `allowed-tools:` | `tools:` (commands only) | — | `allowed-tools:` (skills only) |
+| `disable-model-invocation` | `disable-model-invocation:` | `disable-model-invocation:` | `disable-model-invocation:` | — | — | — | — | — | — | — | `disable-model-invocation:` (skills only) |
+| `tools` (agent) | `tools:` | — | `tools:` | `tools:` | — | — | `tools:` | `enabled_tools` (TOML) | `tools:` | — | — |
+| `model` (agent) | `model:` | `model:` | `model:` | `model:` | `model:` | — | `model:` | `active_model` (TOML) | `model:` | — | — |
 
 `—` means the field is not emitted for that tool (unknown fields are silently ignored by most tools; omitting keeps output minimal).
 

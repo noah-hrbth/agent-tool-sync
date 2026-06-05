@@ -135,8 +135,10 @@ func TestCopilotRendersRule_MultiPath(t *testing.T) {
 		t.Fatal("expected .github/instructions/style.instructions.md")
 	}
 	content := string(rule.Content)
-	if !strings.Contains(content, "applyTo: {src/**/*.ts,test/**/*.ts}") {
-		t.Errorf("expected brace-expanded applyTo in:\n%s", content)
+	// Brace-expanded glob starts with "{" (a YAML flow indicator), so it must be
+	// quoted — otherwise it parses as a mapping and breaks the adopt round-trip.
+	if !strings.Contains(content, `applyTo: "{src/**/*.ts,test/**/*.ts}"`) {
+		t.Errorf("expected quoted brace-expanded applyTo in:\n%s", content)
 	}
 }
 
@@ -298,7 +300,7 @@ func TestCopilotRendersCommands_ProjectOnly(t *testing.T) {
 	content := string(cmd.Content)
 	for _, want := range []string{
 		"description: Deploy app",
-		"argument-hint: [env]",
+		`argument-hint: "[env]"`,
 		"tools: [Bash, Read]",
 		"model: sonnet",
 		"Deploy steps.",
