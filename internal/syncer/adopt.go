@@ -3,6 +3,7 @@ package syncer
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/adrg/frontmatter"
@@ -158,6 +159,30 @@ func AdoptExternal(workspace, path string) error {
 		r.Body = string(body)
 		return canonical.SaveRule(workspace, &r)
 
+	case matchOpenCodeAgentPath(path):
+		// OpenCode renders agent `tools` as an object (allowlist), so the shared
+		// canonical.Agent parser (Tools []string) cannot read it. Parse into a local
+		// shape and reverse the object back to a canonical allowlist.
+		var fm struct {
+			Name        string          `yaml:"name"`
+			Description string          `yaml:"description"`
+			Tools       map[string]bool `yaml:"tools"`
+			Model       string          `yaml:"model"`
+		}
+		body, err := frontmatter.Parse(strings.NewReader(content), &fm)
+		if err != nil {
+			return fmt.Errorf("parse opencode agent frontmatter: %w", err)
+		}
+		a := canonical.Agent{
+			Name:        fm.Name,
+			Description: fm.Description,
+			Model:       fm.Model,
+			Tools:       openCodeToolsToAllowlist(fm.Tools),
+			Filename:    strings.TrimSuffix(filepath.Base(path), ".md"),
+			Body:        string(body),
+		}
+		return canonical.SaveAgent(workspace, &a)
+
 	case matchAgentPath(path):
 		var a canonical.Agent
 		body, err := frontmatter.Parse(strings.NewReader(content), &a)
@@ -267,6 +292,37 @@ func skillDir(path string) string {
 
 func matchAgentPath(path string) bool {
 	return strings.HasSuffix(path, ".md") && hasAnyPrefix(path, tools.AgentDirPrefixes())
+}
+
+// matchOpenCodeAgentPath matches OpenCode agent files at either scope. These need
+// a dedicated reverse parse (OpenCode renders `tools` as an object) and so are
+// handled before the generic matchAgentPath in the AdoptExternal switch.
+func matchOpenCodeAgentPath(path string) bool {
+	return strings.HasSuffix(path, ".md") && hasAnyPrefix(path, tools.OpenCodeAgentDirPrefixes())
+}
+
+// openCodeToolsToAllowlist reverses an OpenCode agent `tools` object back to a
+// canonical allowlist: keys enabled (true), minus the deny-all sentinel "*",
+// mapped to canonical tool names and sorted for deterministic output.
+//
+// Limitation: a hand-authored deny-all-only object (`{"*": false}`, nothing
+// re-enabled) reverses to an empty allowlist, which canonical renders as "all
+// tools" — the inverse of intent. canonical.Agent.Tools ([]string, omitempty) has
+// no representation for "zero tools", so adopt cannot distinguish the two. render
+// never emits the deny-all-only form, so this only bites manual edits.
+func openCodeToolsToAllowlist(m map[string]bool) []string {
+	if len(m) == 0 {
+		return nil
+	}
+	var out []string
+	for k, enabled := range m {
+		if k == "*" || !enabled {
+			continue
+		}
+		out = append(out, tools.CanonicalToolName(k))
+	}
+	sort.Strings(out)
+	return out
 }
 
 func matchCommandPath(path string) bool {

@@ -197,12 +197,14 @@ When editing a skill, agent, or command in the TUI, tools that don't support tha
 | `paths` (rule) | `paths:` | `globs:` | — | — | — | `paths:` | — | — | `applyTo:` (single glob; multi-path brace-expanded) | — | — |
 | `allowed-tools` | `allowed-tools:` | `allowed-tools:` | `allowed-tools:` | — | — | — | — | `allowed-tools:` | `tools:` (commands only) | — | `allowed-tools:` (skills only) |
 | `disable-model-invocation` | `disable-model-invocation:` | `disable-model-invocation:` | `disable-model-invocation:` | — | — | — | — | — | — | — | `disable-model-invocation:` (skills only) |
-| `tools` (agent) | `tools:` | — | `tools:` | `tools:` | — | — | `tools:` | `enabled_tools` (TOML) | `tools:` | — | — |
+| `tools` (agent) | `tools:` | — | `tools:` (object allowlist) | `tools:` | — | — | `tools:` | `enabled_tools` (TOML) | `tools:` | — | — |
 | `model` (agent) | `model:` | `model:` | `model:` | `model:` | `model:` | — | `model:` | `active_model` (TOML) | `model:` | — | — |
 
 `—` means the field is not emitted for that tool (unknown fields are silently ignored by most tools; omitting keeps output minimal).
 
 > **Claude ↔ Cursor `paths`**: Claude Code's skill `paths:` and Cursor's rule `globs:` serve the same purpose — auto-activate on matching files. agentsync emits `paths:` to Claude Code and translates to `globs:` for Cursor. Per-rule `globs:` on the `general.mdc` rules file is a separate roadmap item.
+
+> **OpenCode agent `tools`**: Claude's allowlist array (`tools: [Read, Glob]`) is translated to OpenCode's required object form — `tools: {"*": false, read: true, glob: true}` (deny-all sentinel plus the enabled tools, names lowercased). An array fails OpenCode's config loader, and the object reverses back to the canonical allowlist on adopt.
 
 ## CLI reference
 

@@ -75,14 +75,24 @@ func SkillDirPrefixes() []string {
 	}
 }
 
-// AgentDirPrefixes returns every generic "<dir>/agents/" prefix adopt.go
-// reverses to a canonical Agent (Copilot agents are matched separately).
+// AgentDirPrefixes returns every generic "<dir>/agents/" prefix adopt.go reverses
+// to a canonical Agent via the shared frontmatter parser. Copilot and OpenCode
+// agents are matched separately — Copilot by suffix, OpenCode because it renders
+// `tools` as an object the shared []string parser cannot read (see adopt.go).
 func AgentDirPrefixes() []string {
 	return []string{
 		claudeDir + "/agents/",
+		junieDir + "/agents/",
+	}
+}
+
+// OpenCodeAgentDirPrefixes returns the OpenCode agent dirs at both scopes. adopt.go
+// reverses these with a dedicated parser because OpenCode renders agent `tools` as
+// an object (allowlist), not the canonical []string array.
+func OpenCodeAgentDirPrefixes() []string {
+	return []string{
 		opencodeDirProject + "/agents/",
 		opencodeDirUser + "/agents/",
-		junieDir + "/agents/",
 	}
 }
 

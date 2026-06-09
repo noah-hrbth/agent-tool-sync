@@ -9,8 +9,19 @@ import (
 
 type fmField struct {
 	key   string
-	value any // string, []string, or bool
+	value any // string, []string, bool, or fmYAMLMap
 }
+
+// fmYAMLMapEntry is one key/value of an ordered nested YAML mapping.
+type fmYAMLMapEntry struct {
+	key   string
+	value bool
+}
+
+// fmYAMLMap renders as a nested YAML mapping under its field key. Unlike scalar
+// fields, EVERY entry is emitted — false included — because some mappings need an
+// explicit false (e.g. OpenCode's allowlist deny-all sentinel `"*": false`).
+type fmYAMLMap []fmYAMLMapEntry
 
 // yamlScalar renders s as a YAML-safe scalar, quoting only when a plain scalar
 // would misparse — leading flow indicators ([ {), reserved words (true/yes/null),
@@ -43,6 +54,13 @@ func buildMDFrontmatter(fields []fmField, body string) string {
 		case bool:
 			if v {
 				fmt.Fprintf(&sb, "%s: true\n", f.key)
+			}
+		case fmYAMLMap:
+			if len(v) > 0 {
+				fmt.Fprintf(&sb, "%s:\n", f.key)
+				for _, e := range v {
+					fmt.Fprintf(&sb, "  %s: %t\n", yamlScalar(e.key), e.value)
+				}
 			}
 		}
 	}

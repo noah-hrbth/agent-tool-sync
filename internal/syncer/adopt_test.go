@@ -293,6 +293,55 @@ func TestAdoptAgent(t *testing.T) {
 	}
 }
 
+// TestAdoptOpenCodeAgentRoundTrip drives adopt from real renderOpenCode output:
+// the canonical allowlist renders to a `tools` object, and adopt must reverse that
+// object back to a canonical allowlist (the "*" deny-all sentinel dropped, names
+// remapped, sorted). Guards the render↔adopt contract for OpenCode's object form.
+// WebSearch is included on purpose: its OpenCode key is the lowercase form, so it
+// only round-trips because of the case-preservation pin — a lossy fallback would
+// reverse it to "websearch" and silently corrupt canonical.
+func TestAdoptOpenCodeAgentRoundTrip(t *testing.T) {
+	ws := buildAdoptWorkspace(t)
+	c := &canonical.Canonical{
+		Agents: []*canonical.Agent{{
+			Filename: "reviewer", Name: "reviewer", Description: "Read-only review",
+			Tools: []string{"Read", "Glob", "Grep", "Bash", "WebSearch"}, Model: "sonnet",
+			Body: "Review the code.\n",
+		}},
+	}
+	const path = ".opencode/agents/reviewer.md"
+	rendered := renderToolFile(t, "opencode", c, tools.ScopeProject, path)
+	if err := os.MkdirAll(filepath.Join(ws, ".opencode", "agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws, path), rendered, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := syncer.AdoptExternal(ws, path); err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+
+	saved, err := os.ReadFile(filepath.Join(ws, ".agentsync", "agents", "reviewer.md"))
+	if err != nil {
+		t.Fatalf("read canonical agent: %v", err)
+	}
+	got := string(saved)
+	// deny-all sentinel must not survive; allowlist names must reverse to canonical
+	if strings.Contains(got, "*") {
+		t.Errorf("canonical agent leaked the deny-all sentinel:\n%s", got)
+	}
+	for _, want := range []string{"Read", "Glob", "Grep", "Bash", "WebSearch", "Review the code."} {
+		if !strings.Contains(got, want) {
+			t.Errorf("canonical agent missing %q:\n%s", want, got)
+		}
+	}
+	// the pinned name must reverse with original casing, not the lowercase OpenCode key
+	if strings.Contains(got, "websearch") {
+		t.Errorf("WebSearch reversed to lowercase OpenCode key (lossy round-trip):\n%s", got)
+	}
+}
+
 func TestAdoptCommand(t *testing.T) {
 	ws := buildAdoptWorkspace(t)
 	cmdContent := "---\ndescription: Stage and commit\nallowed-tools: [Bash]\n---\nRun git commit.\n"
