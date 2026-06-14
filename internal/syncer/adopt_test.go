@@ -78,6 +78,36 @@ func TestAdoptRulesFromClaude(t *testing.T) {
 	}
 }
 
+// TestAdoptRuleWithUnquotedGlobs covers hand-authored rule files whose
+// frontmatter writes globs as an unquoted flow sequence (a leading '*' is a
+// YAML alias indicator). Without lenient parsing the whole frontmatter fails
+// and the rule is skipped on import (the WEBDEV.md case).
+func TestAdoptRuleWithUnquotedGlobs(t *testing.T) {
+	ws := buildAdoptWorkspace(t)
+	if err := os.MkdirAll(filepath.Join(ws, ".claude", "rules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// unquoted globs incl. a brace group with an internal comma
+	content := "---\npaths: [**/*.ts, **/*.tsx, **/*.{ts,tsx}]\n---\n\n# Web rules\nBody.\n"
+	if err := os.WriteFile(filepath.Join(ws, ".claude", "rules", "WEBDEV.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := syncer.AdoptExternal(ws, ".claude/rules/WEBDEV.md"); err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+
+	saved, err := os.ReadFile(filepath.Join(ws, ".agentsync", "rules", "WEBDEV.md"))
+	if err != nil {
+		t.Fatalf("read canonical rule: %v", err)
+	}
+	for _, want := range []string{"**/*.ts", "**/*.tsx", "**/*.{ts,tsx}", "# Web rules"} {
+		if !strings.Contains(string(saved), want) {
+			t.Errorf("canonical rule missing %q in:\n%s", want, string(saved))
+		}
+	}
+}
+
 func TestAdoptVibeAgentsMDProject(t *testing.T) {
 	ws := buildAdoptWorkspace(t)
 	content := "# Vibe edited rules\n"

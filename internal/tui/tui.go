@@ -1011,7 +1011,21 @@ func (m *model) updatePreview() {
 	if w < 1 {
 		w = 1
 	}
+	// badge count (and thus body height) depends on the selected file
+	m.preview.Height = m.previewBodyHeight()
 	m.preview.SetContent(ansi.Wrap(m.previewContent(m.fileIdx), w, " -"))
+}
+
+// previewBodyHeight is the viewport height for the file-preview body, matching
+// what viewFiles draws: the panel inner height minus the badge block and the
+// two blank rows above the body. Keeping the viewport's height in sync with the
+// drawn height is what lets the scroll clamp reach the final lines.
+func (m *model) previewBodyHeight() int {
+	h := m.h - 4 - len(m.computeBadges()) - 3
+	if h < 1 {
+		h = 1
+	}
+	return h
 }
 
 // refreshFileList rebuilds the left-list viewport content. Called whenever the
@@ -1242,9 +1256,9 @@ func (m *model) resizeViewports() {
 		previewInnerW = 1
 	}
 	m.preview.Width = previewInnerW
-	// Height is recomputed in viewFiles based on badge count; set a sensible
-	// default here so HalfPageDown works even before the first View() call.
-	m.preview.Height = panelInnerH
+	// Match the height viewFiles actually draws (badge block + 2 blank rows) so
+	// the viewport's scroll clamp lets HalfPageDown reach the last lines.
+	m.preview.Height = m.previewBodyHeight()
 
 	// Sync log.
 	m.logView.Width = m.w - 7
@@ -2393,12 +2407,9 @@ func (m model) viewFiles() string {
 		rightPanel = rightPanelStyle.Width(rightW).Height(m.h - 4).Render(m.editor.View())
 	} else {
 		badges := m.computeBadges()
-		// Recompute preview Height to account for the badge block + the two blank
-		// rows between badges and the preview body.
-		m.preview.Height = m.h - 4 - len(badges) - 3
-		if m.preview.Height < 1 {
-			m.preview.Height = 1
-		}
+		// Height is kept in sync persistently via previewBodyHeight (resize +
+		// updatePreview); set it here too so the first paint matches.
+		m.preview.Height = m.previewBodyHeight()
 		badgeStr := strings.Join(badges, "\n")
 		rightContent := badgeStr + "\n\n" + m.preview.View()
 		rightPanel = rightPanelStyle.Width(rightW).Height(m.h - 4).Render(rightContent)

@@ -513,6 +513,28 @@ func TestPreviewFollowsCursor(t *testing.T) {
 	}
 }
 
+// TestPreviewHeightAccountsForBadges guards the scroll bug: the viewport's
+// Height (used by HalfPageDown's clamp) must match the height viewFiles draws,
+// which subtracts the badge block. Otherwise the clamp is too small and the
+// last lines can't be scrolled into view.
+func TestPreviewHeightAccountsForBadges(t *testing.T) {
+	ws := seedSkillWorkspace(t)
+	m := newTestModel(t, ws) // idx 0 = AGENTS.md (has rule-compat badges)
+
+	badges := m.computeBadges()
+	if len(badges) == 0 {
+		t.Fatal("expected compatibility badges for AGENTS.md selection")
+	}
+	if want := m.previewBodyHeight(); m.preview.Height != want {
+		t.Errorf("preview.Height %d not synced with drawn height %d", m.preview.Height, want)
+	}
+	// the badge-agnostic panel inner height (m.h-6) is what the old code used;
+	// the real height must be smaller by the badge block + 2 blank rows
+	if panelInner := m.h - 6; m.preview.Height >= panelInner {
+		t.Errorf("preview.Height %d should be < badge-agnostic %d (%d badges)", m.preview.Height, panelInner, len(badges))
+	}
+}
+
 func TestToolsScreenEnterOpensInfoModal(t *testing.T) {
 	ws := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(ws, ".agentsync"), 0o755); err != nil {

@@ -17,9 +17,17 @@ func DetectAtScope(ws string, t Tool, scope Scope) Installation {
 	if err != nil {
 		return Installation{}
 	}
+	neutral := neutralRootMemoryFiles(scope)
 	candidates := make([]string, 0, len(sources.Dirs)+len(sources.RootFiles)+len(sources.DetectFiles))
 	candidates = append(candidates, sources.Dirs...)
-	candidates = append(candidates, sources.RootFiles...)
+	for _, rf := range sources.RootFiles {
+		// a root file emitted by >1 tool (e.g. the bare shared AGENTS.md) cannot
+		// identify THIS tool, so it must not count as a detection signal
+		if neutral[rf] {
+			continue
+		}
+		candidates = append(candidates, rf)
+	}
 	candidates = append(candidates, sources.DetectFiles...)
 	for _, rel := range candidates {
 		abs := filepath.Join(ws, rel)
@@ -28,6 +36,30 @@ func DetectAtScope(ws string, t Tool, scope Scope) Installation {
 		}
 	}
 	return Installation{}
+}
+
+// neutralRootMemoryFiles returns the project-scope root-memory paths emitted by
+// more than one tool at scope. Such a file (notably the bare shared AGENTS.md)
+// cannot distinguish which tool wrote it, so DetectAtScope must not treat its
+// presence as a positive detection signal for any single tool.
+func neutralRootMemoryFiles(scope Scope) map[string]bool {
+	counts := map[string]int{}
+	for _, t := range All() {
+		src, err := DeriveImportSources(t, scope)
+		if err != nil {
+			continue
+		}
+		for _, rf := range src.RootFiles {
+			counts[rf]++
+		}
+	}
+	neutral := map[string]bool{}
+	for f, n := range counts {
+		if n > 1 {
+			neutral[f] = true
+		}
+	}
+	return neutral
 }
 
 // ImportEligible reports whether importing from the tool at the given scope can

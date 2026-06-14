@@ -60,7 +60,7 @@ func adoptExternal(workspace, path string) (adoptedKind, error) {
 	case path == tools.CursorCatchAll:
 		// Strip the frontmatter wrapper added by the Cursor adapter.
 		var discard map[string]interface{}
-		rest, err := frontmatter.Parse(strings.NewReader(content), &discard)
+		rest, err := parseLenientFrontmatter(content, &discard)
 		if err != nil {
 			return adoptedNone, fmt.Errorf("parse cursor frontmatter: %w", err)
 		}
@@ -75,7 +75,7 @@ func adoptExternal(workspace, path string) (adoptedKind, error) {
 
 	case matchClineRulePath(path):
 		var r canonical.Rule
-		body, err := frontmatter.Parse(strings.NewReader(content), &r)
+		body, err := parseLenientFrontmatter(content, &r)
 		if err != nil {
 			return adoptedNone, fmt.Errorf("parse cline rule frontmatter: %w", err)
 		}
@@ -89,7 +89,7 @@ func adoptExternal(workspace, path string) (adoptedKind, error) {
 			ApplyTo     string `yaml:"applyTo"`
 			Description string `yaml:"description"`
 		}
-		body, err := frontmatter.Parse(strings.NewReader(content), &fm)
+		body, err := parseLenientFrontmatter(content, &fm)
 		if err != nil {
 			return adoptedNone, fmt.Errorf("parse copilot instruction frontmatter: %w", err)
 		}
@@ -163,7 +163,7 @@ func adoptExternal(workspace, path string) (adoptedKind, error) {
 			return adoptedSkillDoc, canonical.SaveSkillDoc(workspace, skillDir(path), skillDocRelPath(path), content)
 		}
 		var s canonical.Skill
-		body, err := frontmatter.Parse(strings.NewReader(content), &s)
+		body, err := parseLenientFrontmatter(content, &s)
 		if err != nil {
 			return adoptedNone, fmt.Errorf("parse skill frontmatter: %w", err)
 		}
@@ -173,7 +173,7 @@ func adoptExternal(workspace, path string) (adoptedKind, error) {
 
 	case matchRulePath(path):
 		var r canonical.Rule
-		body, err := frontmatter.Parse(strings.NewReader(content), &r)
+		body, err := parseLenientFrontmatter(content, &r)
 		if err != nil {
 			return adoptedNone, fmt.Errorf("parse rule frontmatter: %w", err)
 		}

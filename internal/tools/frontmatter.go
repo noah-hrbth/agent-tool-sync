@@ -49,7 +49,13 @@ func buildMDFrontmatter(fields []fmField, body string) string {
 			}
 		case []string:
 			if len(v) > 0 {
-				fmt.Fprintf(&sb, "%s: [%s]\n", f.key, strings.Join(v, ", "))
+				// quote per-item so leading-indicator globs (e.g. **/*.ts, read by
+				// YAML as an alias) round-trip; plain words stay unquoted
+				items := make([]string, len(v))
+				for i, s := range v {
+					items[i] = yamlScalar(s)
+				}
+				fmt.Fprintf(&sb, "%s: [%s]\n", f.key, strings.Join(items, ", "))
 			}
 		case bool:
 			if v {

@@ -48,17 +48,30 @@ func TestDetectAtScopeProjectRootMemoryHit(t *testing.T) {
 	}
 }
 
-func TestDetectAtScopeProjectAgentsMDFansOut(t *testing.T) {
-	// a bare AGENTS.md is the shared project root memory of six tools
-	// (ADR-0004); each must report itself as an import candidate
+func TestDetectAtScopeProjectBareAgentsMDIsNeutral(t *testing.T) {
+	// a bare AGENTS.md is shared by several AGENTS.md-standard tools, so it
+	// cannot identify any one of them — it must NOT be a detection signal
+	// (otherwise e.g. Codex reads as "installed" whenever any AGENTS.md exists)
 	ws := t.TempDir()
 	writeWorkspaceFile(t, ws, "AGENTS.md")
 
 	for _, key := range []string{"codex", "opencode", "vibe", "pi", "cline", "junie"} {
 		inst := tools.DetectAtScope(ws, toolByKey(t, key), tools.ScopeProject)
-		if !inst.Found {
-			t.Errorf("%s: want Found via bare AGENTS.md", key)
+		if inst.Found {
+			t.Errorf("%s: want NOT Found via bare AGENTS.md, got Path %q", key, inst.Path)
 		}
+	}
+}
+
+func TestDetectAtScopeProjectToolSpecificMarkerStillDetects(t *testing.T) {
+	// a tool-specific footprint (here Codex's agents dir) still detects, so the
+	// neutral-AGENTS.md exclusion does not suppress real installs
+	ws := t.TempDir()
+	writeWorkspaceFile(t, ws, ".codex/agents/foo.toml")
+
+	inst := tools.DetectAtScope(ws, toolByKey(t, "codex"), tools.ScopeProject)
+	if !inst.Found {
+		t.Fatal("codex: want Found via .codex/agents marker")
 	}
 }
 

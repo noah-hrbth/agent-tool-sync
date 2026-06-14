@@ -32,8 +32,16 @@ rule name `general`) and per-file errors never abort the import.
 
 ## Consequences
 
-- A bare `AGENTS.md` at project scope detects six tools (Codex, OpenCode,
-  Vibe, Pi, Cline, Junie) — all are listed in the wizard and enabled.
+- A bare `AGENTS.md` at project scope is **neutral**: it is the shared root
+  memory of several AGENTS.md-standard tools (Codex, OpenCode, Vibe, Pi, Cline,
+  Junie), so it cannot identify any one of them and is excluded from per-tool
+  project detection (`neutralRootMemoryFiles` in `detect_scope.go`). Without
+  this, every AGENTS.md tool reads as "installed" whenever any `AGENTS.md`
+  exists — a false positive. A tool is project-detected only via a
+  tool-specific marker (its own concept dir or dedicated memory file). Tradeoff:
+  a repo whose only config is a lone `AGENTS.md` offers no import source in the
+  wizard (the six fan-out options were redundant — all imported the same file);
+  the user starts fresh instead.
 - Tool-root-only installs (e.g. only `.claude/settings.json`, no concept dirs)
   are not project-detected.
 - There is no auto-sync after import — the user reviews the canonical and runs
