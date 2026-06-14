@@ -12,9 +12,31 @@ import (
 	"github.com/noah-hrbth/agentsync/internal/tools"
 )
 
+// adoptedKind classifies which canonical entity an adoption wrote, so callers
+// (e.g. a bulk-import engine) can act on what each adoption produced.
+type adoptedKind int
+
+const (
+	adoptedNone adoptedKind = iota
+	adoptedRootMemory
+	adoptedRule
+	adoptedSkill
+	adoptedSkillDoc
+	adoptedAgent
+	adoptedCommand
+)
+
 // AdoptExternal reads the divergent file at <workspace>/<path>, maps it back to
 // the matching canonical entity, and persists the canonical update.
 // The caller must reload canonical from disk after this returns.
+func AdoptExternal(workspace, path string) error {
+	_, err := adoptExternal(workspace, path)
+	return err
+}
+
+// adoptExternal implements AdoptExternal and additionally reports which kind
+// of canonical entity the adoption wrote. The kind is only meaningful when
+// the returned error is nil.
 //
 // INVARIANT: the switch case order is load-bearing. Tool-specific matchers
 // (Cursor general.mdc, Cline rules/workflows, Copilot instructions/agents/
@@ -24,42 +46,42 @@ import (
 // "<skill>/rules/" subfolder would otherwise be claimed by the generic /rules/
 // matcher. internal/syncer/contract_test.go fails if this ordering (or the
 // shared path vocabulary in internal/tools/paths.go) drifts from what render emits.
-func AdoptExternal(workspace, path string) error {
+func adoptExternal(workspace, path string) (adoptedKind, error) {
 	data, err := safepath.ReadFile(workspace, path)
 	if err != nil {
-		return fmt.Errorf("read %s: %w", path, err)
+		return adoptedNone, fmt.Errorf("read %s: %w", path, err)
 	}
 	content := string(data)
 
 	switch {
 	case isRootMemoryFile(path):
-		return canonical.SaveAgentsMD(workspace, content)
+		return adoptedRootMemory, canonical.SaveAgentsMD(workspace, content)
 
 	case path == tools.CursorCatchAll:
 		// Strip the frontmatter wrapper added by the Cursor adapter.
 		var discard map[string]interface{}
 		rest, err := frontmatter.Parse(strings.NewReader(content), &discard)
 		if err != nil {
-			return fmt.Errorf("parse cursor frontmatter: %w", err)
+			return adoptedNone, fmt.Errorf("parse cursor frontmatter: %w", err)
 		}
-		return canonical.SaveAgentsMD(workspace, string(rest))
+		return adoptedRootMemory, canonical.SaveAgentsMD(workspace, string(rest))
 
 	case matchClineWorkflowPath(path):
 		// Cline workflows have no frontmatter; the body is the prompt.
 		var cmd canonical.Command
 		cmd.Filename = strings.TrimSuffix(filepath.Base(path), ".md")
 		cmd.Body = content
-		return canonical.SaveCommand(workspace, &cmd)
+		return adoptedCommand, canonical.SaveCommand(workspace, &cmd)
 
 	case matchClineRulePath(path):
 		var r canonical.Rule
 		body, err := frontmatter.Parse(strings.NewReader(content), &r)
 		if err != nil {
-			return fmt.Errorf("parse cline rule frontmatter: %w", err)
+			return adoptedNone, fmt.Errorf("parse cline rule frontmatter: %w", err)
 		}
 		r.Filename = strings.TrimSuffix(filepath.Base(path), ".md")
 		r.Body = string(body)
-		return canonical.SaveRule(workspace, &r)
+		return adoptedRule, canonical.SaveRule(workspace, &r)
 
 	case matchCopilotInstructionPath(path):
 		// Copilot uses `applyTo:` (single glob string) instead of `paths:` array.
@@ -69,7 +91,7 @@ func AdoptExternal(workspace, path string) error {
 		}
 		body, err := frontmatter.Parse(strings.NewReader(content), &fm)
 		if err != nil {
-			return fmt.Errorf("parse copilot instruction frontmatter: %w", err)
+			return adoptedNone, fmt.Errorf("parse copilot instruction frontmatter: %w", err)
 		}
 		var r canonical.Rule
 		r.Filename = strings.TrimSuffix(filepath.Base(path), ".instructions.md")
@@ -78,17 +100,17 @@ func AdoptExternal(workspace, path string) error {
 			r.Paths = []string{fm.ApplyTo}
 		}
 		r.Body = string(body)
-		return canonical.SaveRule(workspace, &r)
+		return adoptedRule, canonical.SaveRule(workspace, &r)
 
 	case matchCopilotAgentPath(path):
 		var a canonical.Agent
 		body, err := frontmatter.Parse(strings.NewReader(content), &a)
 		if err != nil {
-			return fmt.Errorf("parse copilot agent frontmatter: %w", err)
+			return adoptedNone, fmt.Errorf("parse copilot agent frontmatter: %w", err)
 		}
 		a.Filename = strings.TrimSuffix(filepath.Base(path), ".agent.md")
 		a.Body = string(body)
-		return canonical.SaveAgent(workspace, &a)
+		return adoptedAgent, canonical.SaveAgent(workspace, &a)
 
 	case matchCopilotPromptPath(path):
 		// Copilot prompts use `tools:` (not `allowed-tools:`).
@@ -100,7 +122,7 @@ func AdoptExternal(workspace, path string) error {
 		}
 		body, err := frontmatter.Parse(strings.NewReader(content), &fm)
 		if err != nil {
-			return fmt.Errorf("parse copilot prompt frontmatter: %w", err)
+			return adoptedNone, fmt.Errorf("parse copilot prompt frontmatter: %w", err)
 		}
 		cmd := canonical.Command{
 			Filename:     strings.TrimSuffix(filepath.Base(path), ".prompt.md"),
@@ -110,7 +132,7 @@ func AdoptExternal(workspace, path string) error {
 			Model:        fm.Model,
 			Body:         string(body),
 		}
-		return canonical.SaveCommand(workspace, &cmd)
+		return adoptedCommand, canonical.SaveCommand(workspace, &cmd)
 
 	case matchPiPromptPath(path):
 		// Pi prompts (slash commands) support description and argument-hint only.
@@ -120,7 +142,7 @@ func AdoptExternal(workspace, path string) error {
 		}
 		body, err := frontmatter.Parse(strings.NewReader(content), &fm)
 		if err != nil {
-			return fmt.Errorf("parse pi prompt frontmatter: %w", err)
+			return adoptedNone, fmt.Errorf("parse pi prompt frontmatter: %w", err)
 		}
 		cmd := canonical.Command{
 			Filename:     strings.TrimSuffix(filepath.Base(path), ".md"),
@@ -128,7 +150,7 @@ func AdoptExternal(workspace, path string) error {
 			ArgumentHint: fm.ArgumentHint,
 			Body:         string(body),
 		}
-		return canonical.SaveCommand(workspace, &cmd)
+		return adoptedCommand, canonical.SaveCommand(workspace, &cmd)
 
 	case matchSkillPath(path):
 		// Must precede matchRulePath: a skill doc may legally live under a
@@ -138,26 +160,26 @@ func AdoptExternal(workspace, path string) error {
 		// SKILL.md is the manifest (typed frontmatter); any other .md is a plain
 		// skill doc persisted verbatim under the same skill dir.
 		if filepath.Base(path) != "SKILL.md" {
-			return canonical.SaveSkillDoc(workspace, skillDir(path), skillDocRelPath(path), content)
+			return adoptedSkillDoc, canonical.SaveSkillDoc(workspace, skillDir(path), skillDocRelPath(path), content)
 		}
 		var s canonical.Skill
 		body, err := frontmatter.Parse(strings.NewReader(content), &s)
 		if err != nil {
-			return fmt.Errorf("parse skill frontmatter: %w", err)
+			return adoptedNone, fmt.Errorf("parse skill frontmatter: %w", err)
 		}
 		s.Dir = skillDir(path)
 		s.Body = string(body)
-		return canonical.SaveSkill(workspace, &s)
+		return adoptedSkill, canonical.SaveSkill(workspace, &s)
 
 	case matchRulePath(path):
 		var r canonical.Rule
 		body, err := frontmatter.Parse(strings.NewReader(content), &r)
 		if err != nil {
-			return fmt.Errorf("parse rule frontmatter: %w", err)
+			return adoptedNone, fmt.Errorf("parse rule frontmatter: %w", err)
 		}
 		r.Filename = ruleFilename(path)
 		r.Body = string(body)
-		return canonical.SaveRule(workspace, &r)
+		return adoptedRule, canonical.SaveRule(workspace, &r)
 
 	case matchOpenCodeAgentPath(path):
 		// OpenCode renders agent `tools` as an object (allowlist), so the shared
@@ -171,7 +193,7 @@ func AdoptExternal(workspace, path string) error {
 		}
 		body, err := frontmatter.Parse(strings.NewReader(content), &fm)
 		if err != nil {
-			return fmt.Errorf("parse opencode agent frontmatter: %w", err)
+			return adoptedNone, fmt.Errorf("parse opencode agent frontmatter: %w", err)
 		}
 		a := canonical.Agent{
 			Name:        fm.Name,
@@ -181,30 +203,30 @@ func AdoptExternal(workspace, path string) error {
 			Filename:    strings.TrimSuffix(filepath.Base(path), ".md"),
 			Body:        string(body),
 		}
-		return canonical.SaveAgent(workspace, &a)
+		return adoptedAgent, canonical.SaveAgent(workspace, &a)
 
 	case matchAgentPath(path):
 		var a canonical.Agent
 		body, err := frontmatter.Parse(strings.NewReader(content), &a)
 		if err != nil {
-			return fmt.Errorf("parse agent frontmatter: %w", err)
+			return adoptedNone, fmt.Errorf("parse agent frontmatter: %w", err)
 		}
 		a.Filename = strings.TrimSuffix(filepath.Base(path), ".md")
 		a.Body = string(body)
-		return canonical.SaveAgent(workspace, &a)
+		return adoptedAgent, canonical.SaveAgent(workspace, &a)
 
 	case matchCommandPath(path):
 		var cmd canonical.Command
 		body, err := frontmatter.Parse(strings.NewReader(content), &cmd)
 		if err != nil {
-			return fmt.Errorf("parse command frontmatter: %w", err)
+			return adoptedNone, fmt.Errorf("parse command frontmatter: %w", err)
 		}
 		cmd.Filename = strings.TrimSuffix(filepath.Base(path), ".md")
 		cmd.Body = string(body)
-		return canonical.SaveCommand(workspace, &cmd)
+		return adoptedCommand, canonical.SaveCommand(workspace, &cmd)
 
 	default:
-		return fmt.Errorf("adopt: no canonical mapping for path %q", path)
+		return adoptedNone, fmt.Errorf("adopt: no canonical mapping for path %q", path)
 	}
 }
 

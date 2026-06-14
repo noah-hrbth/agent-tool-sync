@@ -53,8 +53,14 @@ Whether a Tool supports a Concept or Scope, with optional Reason / Deprecated / 
 _Avoid_: support flag, capability
 
 **Adopt**:
-Reverse-mapping a divergent rendered file back into the Canonical (`AdoptExternal`).
-_Avoid_: pull, import, reverse-sync
+Reverse-mapping a single divergent rendered file back into the Canonical
+(`AdoptExternal`) — per-file drift repair of rendered outputs.
+_Avoid_: pull, reverse-sync, import (that is the bulk bootstrap)
+
+**Import**:
+One-time bootstrap of a fresh Canonical from an existing tool's on-disk layout at the
+matching Scope; implemented as bulk Adopt over render-derived sources.
+_Avoid_: pull, migrate, seed
 
 **Path anchors**:
 The directory-prefix / root-file constants in `internal/tools/paths.go` — the single
@@ -77,6 +83,7 @@ _Avoid_: roundtrip (that is the per-tool byte test), sync test
 - A **Tool** is its **ToolMeta** (data) plus its **RenderFunc** (behaviour); the **Registry** orders all Tools.
 - **ToolMeta** declares a **Compatibility** for every **Concept** and every **Scope** explicitly.
 - **Adopt** is the inverse of a **RenderFunc** for paths `adopt.go` can reverse-map.
+- **Import** bootstraps a fresh **Canonical** by running **Adopt** in bulk over render-derived sources at the matching **Scope**.
 
 ## Example dialogue
 

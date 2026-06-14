@@ -33,6 +33,49 @@ func TestConfigGitignoreRoundTripsThroughYAML(t *testing.T) {
 	}
 }
 
+func TestWithEnabledEnablesOnlyListed(t *testing.T) {
+	toolNames := []string{"Claude Code", "Cursor", "Zed"}
+	cfg := WithEnabled(toolNames, []string{"Claude Code"})
+
+	for _, name := range toolNames {
+		tc, ok := cfg.Tools[name]
+		if !ok {
+			t.Errorf("tool %q missing from config", name)
+		}
+		want := name == "Claude Code"
+		if tc.Enabled != want {
+			t.Errorf("tool %q: Enabled=%v, want %v", name, tc.Enabled, want)
+		}
+	}
+}
+
+func TestWithEnabledEmptyEnabledDisablesAll(t *testing.T) {
+	toolNames := []string{"Claude Code", "Cursor", "Zed"}
+	cfg := WithEnabled(toolNames, []string{})
+
+	for _, name := range toolNames {
+		tc, ok := cfg.Tools[name]
+		if !ok {
+			t.Errorf("tool %q missing from config", name)
+		}
+		if tc.Enabled {
+			t.Errorf("tool %q: expected Enabled=false", name)
+		}
+	}
+}
+
+func TestWithEnabledIgnoresUnknownEnabledNames(t *testing.T) {
+	toolNames := []string{"Claude Code", "Cursor"}
+	cfg := WithEnabled(toolNames, []string{"Claude Code", "Unknown Tool"})
+
+	if _, ok := cfg.Tools["Unknown Tool"]; ok {
+		t.Errorf("unknown tool %q should not appear in config", "Unknown Tool")
+	}
+	if len(cfg.Tools) != len(toolNames) {
+		t.Errorf("expected %d tools, got %d", len(toolNames), len(cfg.Tools))
+	}
+}
+
 func TestConfigLoadLegacyYAMLWithoutGitignoreFieldDefaultsToZero(t *testing.T) {
 	ws := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(ws, ".agentsync"), 0o755); err != nil {

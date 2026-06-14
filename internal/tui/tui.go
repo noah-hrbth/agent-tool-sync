@@ -36,9 +36,9 @@ type divChoice int
 
 const (
 	choiceNone      divChoice = iota
-	choiceAdopt               // use external edit, update canonical
-	choiceOverwrite           // discard external edit, write canonical
-	choiceDefer               // skip this file this run
+	choiceAdopt               // UI "pull": file's edits -> canonical source
+	choiceOverwrite           // UI "push": canonical source -> file (discards edits)
+	choiceDefer               // UI "skip": leave file untouched this run
 )
 
 type fileKind int
@@ -309,7 +309,7 @@ func buildFileItems(c *canonical.Canonical) []fileItem {
 func buildSkillDocRows(s *canonical.Skill) []fileItem {
 	rows := []fileItem{{label: "SKILL.md", kind: kindSkill, skill: s}}
 
-	dirFiles := map[string][]string{} // dir relpath ("" = root) → direct file relpaths
+	dirFiles := map[string][]string{}  // dir relpath ("" = root) → direct file relpaths
 	childDirs := map[string][]string{} // dir relpath → direct child subdir relpaths
 	seenDir := map[string]bool{}
 	for _, d := range s.Docs {
@@ -940,15 +940,15 @@ func (m model) updateDivModal(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.divIdx > 0 {
 				m.divIdx--
 			}
-		case "a":
+		case "p":
 			if m.divIdx < len(m.divResults) {
 				m.divChoices[m.divResults[m.divIdx].Path] = choiceAdopt
 			}
-		case "o":
+		case "P":
 			if m.divIdx < len(m.divResults) {
 				m.divChoices[m.divResults[m.divIdx].Path] = choiceOverwrite
 			}
-		case "d":
+		case "s":
 			if m.divIdx < len(m.divResults) {
 				m.divChoices[m.divResults[m.divIdx].Path] = choiceDefer
 			}
@@ -2010,7 +2010,7 @@ func (m model) viewUninitialized() string {
 		"",
 		fmt.Sprintf("No .agentsync/ found at %s", m.workspace),
 		"",
-		fmt.Sprintf("Run: %s", lipgloss.NewStyle().Foreground(colorSuccess).Bold(true).Render(cmdHint)),
+		fmt.Sprintf("Run: %s to launch the setup wizard", lipgloss.NewStyle().Foreground(colorSuccess).Bold(true).Render(cmdHint)),
 		"",
 		"Press [g] to switch back to the other scope.",
 	}
@@ -2123,7 +2123,7 @@ func (m model) renderFooter() string {
 		)
 	case m.showDiv:
 		keys = joinKeyGroups(
-			[]keyHint{{"a", "adopt"}, {"o", "overwrite"}, {"d", "defer"}},
+			[]keyHint{{"p", "pull"}, {"P", "push"}, {"s", "skip"}},
 			[]keyHint{{"enter", "apply"}},
 			[]keyHint{{"esc", "cancel"}},
 		)
@@ -2505,9 +2505,9 @@ func (m model) renderGitignoreBanner() string {
 func (m model) overlayDivModal(base string) string {
 	choiceLabels := map[divChoice]string{
 		choiceNone:      "  (none) ",
-		choiceAdopt:     " [adopt] ",
-		choiceOverwrite: " [overwrite] ",
-		choiceDefer:     " [defer] ",
+		choiceAdopt:     " [pull] ",
+		choiceOverwrite: " [push] ",
+		choiceDefer:     " [skip] ",
 	}
 
 	var lines []string
@@ -2515,8 +2515,10 @@ func (m model) overlayDivModal(base string) string {
 		lipgloss.NewStyle().Bold(true).Foreground(colorWarn).Render("⚠  Divergent files detected"),
 		"",
 		"Files edited outside agentsync. Choose action per file:",
-		"  a = adopt  o = overwrite  d = defer  (unmarked = defer)",
-		"  If multiple rules files are adopted, the last one in this list wins.",
+		"  p = pull   keep the file's edits, pull them into the canonical source",
+		"  P = push   discard the file's edits, push the canonical source onto it",
+		"  s = skip   leave the file untouched this run  (unmarked = skip)",
+		"  If multiple rules files are pulled, the last one in this list wins.",
 		"",
 	)
 

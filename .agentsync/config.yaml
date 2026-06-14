@@ -2,16 +2,21 @@ tools:
   Claude Code:
     enabled: true
   Cline:
-    enabled: true
+    enabled: false
   Codex CLI:
-    enabled: true
+    enabled: false
   Cursor:
     enabled: true
   Gemini CLI:
-    enabled: true
+    enabled: false
   JetBrains Junie:
+    enabled: false
+  Mistral Vibe:
     enabled: true
   OpenCode:
     enabled: true
   Zed:
-    enabled: true
+    enabled: false
+gitignore:
+  manage: true
+  prompted: true

@@ -1207,3 +1207,14 @@ func TestGitignoreRefreshesOnSubsequentSyncWhenManageTrue(t *testing.T) {
 		t.Errorf("expected silent refresh to write managed block, got %q", string(got))
 	}
 }
+
+func TestViewUninitializedMentionsSetupWizard(t *testing.T) {
+	m := model{workspace: "/tmp/ws", scope: tools.ScopeProject, w: 120, h: 40}
+	out := m.viewUninitialized()
+	if !strings.Contains(out, "agentsync init") {
+		t.Errorf("uninitialized view must mention %q, got:\n%s", "agentsync init", out)
+	}
+	if !strings.Contains(out, "setup wizard") {
+		t.Errorf("uninitialized view must mention %q, got:\n%s", "setup wizard", out)
+	}
+}

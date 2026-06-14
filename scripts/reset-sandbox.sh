@@ -7,15 +7,9 @@ SEED="$ROOT/examples/sandbox-seed"
 
 echo "Resetting sandbox at $SANDBOX …"
 
-rm -rf \
-  "$SANDBOX/.agentsync" \
-  "$SANDBOX/.claude" \
-  "$SANDBOX/.opencode" \
-  "$SANDBOX/.cursor" \
-  "$SANDBOX/.gemini" \
-  "$SANDBOX/.agents" \
-  "$SANDBOX/.codex"
-
+# wipe the whole sandbox (a build artifact) so no stale per-tool output from an
+# earlier sync survives, then re-seed only the canonical .agentsync/
+rm -rf "$SANDBOX"
 mkdir -p "$SANDBOX"
 cp -R "$SEED/.agentsync" "$SANDBOX/.agentsync"
 

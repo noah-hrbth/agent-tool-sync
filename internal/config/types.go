@@ -28,6 +28,21 @@ func Default(toolNames []string) *Config {
 	return cfg
 }
 
+// WithEnabled returns a Config listing every tool in toolNames, enabling only
+// those whose name appears in enabledNames. Names in enabledNames that are not
+// in toolNames are silently ignored.
+func WithEnabled(toolNames, enabledNames []string) *Config {
+	enabled := make(map[string]bool, len(enabledNames))
+	for _, name := range enabledNames {
+		enabled[name] = true
+	}
+	cfg := &Config{Tools: make(map[string]ToolConfig, len(toolNames))}
+	for _, name := range toolNames {
+		cfg.Tools[name] = ToolConfig{Enabled: enabled[name]}
+	}
+	return cfg
+}
+
 // IsEnabled reports whether the named tool is enabled for syncing.
 func (c *Config) IsEnabled(toolName string) bool {
 	tc, ok := c.Tools[toolName]

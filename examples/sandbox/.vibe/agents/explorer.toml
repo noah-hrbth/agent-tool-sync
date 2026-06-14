@@ -1,5 +1,5 @@
 display_name = "explorer"
-description = "Lightweight codebase explorer. Use when asked to map structure, list files, or summarise a module — quick orientation tasks that don't need deep reasoning."
+description = "Codebase explorer sourced from Mistral Vibe. Maps structure and lists files."
 active_model = "haiku"
-enabled_tools = ["Read", "Glob", "Grep", "LS"]
+enabled_tools = ["Read", "Glob", "Grep"]
 system_prompt_id = "explorer"

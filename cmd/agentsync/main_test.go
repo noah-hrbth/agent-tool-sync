@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,72 @@ import (
 	"github.com/noah-hrbth/agentsync/internal/gitignore"
 	"github.com/noah-hrbth/agentsync/internal/tools"
 )
+
+func TestRequireInitialized(t *testing.T) {
+	tests := []struct {
+		name      string
+		setup     func(t *testing.T, ws string)
+		scope     tools.Scope
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name:      "missing dir project scope errors with init hint",
+			setup:     func(t *testing.T, ws string) {},
+			scope:     tools.ScopeProject,
+			wantErr:   true,
+			errSubstr: "agentsync init",
+		},
+		{
+			name:      "missing dir user scope errors with global init hint",
+			setup:     func(t *testing.T, ws string) {},
+			scope:     tools.ScopeUser,
+			wantErr:   true,
+			errSubstr: "agentsync init --global",
+		},
+		{
+			name: "existing dir passes",
+			setup: func(t *testing.T, ws string) {
+				if err := os.Mkdir(filepath.Join(ws, ".agentsync"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			},
+			scope:   tools.ScopeProject,
+			wantErr: false,
+		},
+		{
+			name: "plain file at .agentsync errors",
+			setup: func(t *testing.T, ws string) {
+				if err := os.WriteFile(filepath.Join(ws, ".agentsync"), []byte("x"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			scope:   tools.ScopeProject,
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ws := t.TempDir()
+			tt.setup(t, ws)
+
+			err := requireInitialized(ws, tt.scope)
+
+			if !tt.wantErr {
+				if err != nil {
+					t.Fatalf("expected nil, got %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if tt.errSubstr != "" && !strings.Contains(err.Error(), tt.errSubstr) {
+				t.Errorf("error %q missing %q", err.Error(), tt.errSubstr)
+			}
+		})
+	}
+}
 
 func mustReadFile(t *testing.T, path string) string {
 	t.Helper()
@@ -180,5 +247,42 @@ func TestApplyGitignoreFlowOnFirstRunNonTtyLogsHintAndLeavesPromptedFalse(t *tes
 	}
 	if _, err := os.Stat(filepath.Join(ws, ".gitignore")); !os.IsNotExist(err) {
 		t.Errorf(".gitignore should not have been written in non-tty mode (err=%v)", err)
+	}
+}
+
+func TestIsTerminalRejectsNonTtyFiles(t *testing.T) {
+	devNull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open %s: %v", os.DevNull, err)
+	}
+	defer devNull.Close()
+	if isTerminal(devNull) {
+		t.Errorf("isTerminal(%s) = true, want false", os.DevNull)
+	}
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	defer r.Close()
+	defer w.Close()
+	if isTerminal(r) {
+		t.Error("isTerminal(pipe) = true, want false")
+	}
+}
+
+func TestRequireInitializedDistinguishesMissingFromPlainFile(t *testing.T) {
+	missing := t.TempDir()
+	if !errors.Is(requireInitialized(missing, tools.ScopeProject), errNotInitialized) {
+		t.Error("missing .agentsync/ must report errNotInitialized")
+	}
+
+	plainFile := t.TempDir()
+	if err := os.WriteFile(filepath.Join(plainFile, ".agentsync"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := requireInitialized(plainFile, tools.ScopeProject)
+	if err == nil || errors.Is(err, errNotInitialized) {
+		t.Errorf("plain-file .agentsync must error without errNotInitialized, got %v", err)
 	}
 }

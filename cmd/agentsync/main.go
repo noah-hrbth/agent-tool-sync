@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,7 +11,6 @@ import (
 
 	"github.com/noah-hrbth/agentsync/internal/canonical"
 	"github.com/noah-hrbth/agentsync/internal/config"
-	"github.com/noah-hrbth/agentsync/internal/safepath"
 	"github.com/noah-hrbth/agentsync/internal/syncer"
 	"github.com/noah-hrbth/agentsync/internal/tools"
 	"github.com/noah-hrbth/agentsync/internal/tui"
@@ -21,6 +21,8 @@ var version = "dev"
 var (
 	workspace  string
 	globalFlag bool
+	fromFlag   string
+	forceFlag  bool
 )
 
 var rootCmd = &cobra.Command{
@@ -29,6 +31,12 @@ var rootCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ws, scope, err := resolveBase()
 		if err != nil {
+			return err
+		}
+		if err := requireInitialized(ws, scope); err != nil {
+			if errors.Is(err, errNotInitialized) {
+				return runRootFlow(ws, scope, defaultWizardRunner, cmd.OutOrStdout(), isStdinTty())
+			}
 			return err
 		}
 		return tui.Run(ws, scope, tools.All())
@@ -64,8 +72,19 @@ var versionCmd = &cobra.Command{
 func main() {
 	rootCmd.PersistentFlags().StringVar(&workspace, "workspace", "", "path to workspace (default: current directory)")
 	rootCmd.PersistentFlags().BoolVarP(&globalFlag, "global", "g", false, "operate at user scope (canonical at ~/.agentsync, syncs to user-level tool dirs)")
+	initCmd.Flags().StringVar(&fromFlag, "from", "", "import existing config from a tool (e.g. claude, cursor) instead of starting fresh")
+	initCmd.Flags().BoolVar(&forceFlag, "force", false, "wipe an existing .agentsync/ without prompting before re-initializing")
 	rootCmd.AddCommand(initCmd, syncCmd, statusCmd, versionCmd)
+
+	// report runtime errors ourselves: the wizard already renders its own
+	// failure inline, and usage text is noise on a runtime (non-arg) error
+	rootCmd.SilenceErrors = true
+	rootCmd.SilenceUsage = true
 	if err := rootCmd.Execute(); err != nil {
+		// the wizard already showed its failure inline; don't reprint it
+		if !errors.Is(err, errWizardReported) {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+		}
 		os.Exit(1)
 	}
 }
@@ -104,6 +123,39 @@ func resolveBase() (string, tools.Scope, error) {
 	return resolved, scope, nil
 }
 
+// requireInitialized verifies that ws holds an initialized scope: .agentsync/
+// must exist and be a directory. Returns a scope-aware "run 'agentsync init'"
+// error when missing, or a repair hint when .agentsync is a plain file.
+func requireInitialized(ws string, scope tools.Scope) error {
+	info, err := os.Stat(filepath.Join(ws, ".agentsync"))
+	if err != nil {
+		return notInitializedError(scope)
+	}
+	if !info.IsDir() {
+		return agentsyncNotDirError(ws)
+	}
+	return nil
+}
+
+// agentsyncNotDirError reports the repairable state where .agentsync exists but
+// is a plain file rather than the expected directory.
+func agentsyncNotDirError(ws string) error {
+	return fmt.Errorf(".agentsync at %s is not a directory — remove it, then run 'agentsync init'", ws)
+}
+
+// errNotInitialized marks the missing-.agentsync/ case so callers can
+// distinguish it from repairable states like .agentsync being a plain file
+var errNotInitialized = errors.New("not initialized")
+
+// notInitializedError builds the scope-aware not-initialized error.
+func notInitializedError(scope tools.Scope) error {
+	initCmd := "agentsync init"
+	if scope == tools.ScopeUser {
+		initCmd = "agentsync init --global"
+	}
+	return fmt.Errorf("%w — run '%s'", errNotInitialized, initCmd)
+}
+
 func loadState(ws string) (*canonical.Canonical, *config.Config, error) {
 	c, err := canonical.Load(ws)
 	if err != nil {
@@ -121,43 +173,15 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-
-	for _, sub := range []string{".", "skills", "agents", "commands", "rules", ".state"} {
-		if err := safepath.MkdirAll(ws, filepath.Join(".agentsync", sub), 0o755); err != nil {
-			return err
-		}
-	}
-
-	agentsRel := filepath.Join(".agentsync", "AGENTS.md")
-	if _, err := os.Stat(filepath.Join(ws, agentsRel)); os.IsNotExist(err) {
-		starter := "# Project Rules\n\nAdd your AI agent instructions here.\n" +
-			"This file is synced to all enabled AI tools by agentsync.\n"
-		if scope == tools.ScopeUser {
-			starter = "# User Rules\n\nPersonal AI agent instructions applied across all your projects.\n" +
-				"This file is synced to user-level tool config dirs (~/.claude, ~/.codex, etc.) by agentsync.\n"
-		}
-		if err := safepath.WriteFile(ws, agentsRel, []byte(starter), 0o644); err != nil {
-			return err
-		}
-	}
-
-	cfg := config.Default(tools.Names())
-	if err := config.Save(ws, cfg); err != nil {
-		return err
-	}
-
-	fmt.Printf("Initialized .agentsync/ in %s (scope: %s)\n", ws, scope)
-	if scope == tools.ScopeUser {
-		fmt.Println("Edit ~/.agentsync/AGENTS.md, then run 'agentsync sync --global' or launch the TUI with 'agentsync --global'.")
-	} else {
-		fmt.Println("Edit .agentsync/AGENTS.md, then run 'agentsync sync' or launch the TUI with 'agentsync'.")
-	}
-	return nil
+	return runInitFlow(ws, scope, fromFlag, forceFlag, defaultWizardRunner, cmd.InOrStdin(), cmd.OutOrStdout(), isStdinTty())
 }
 
 func runSync(cmd *cobra.Command, _ []string) error {
 	ws, scope, err := resolveBase()
 	if err != nil {
+		return err
+	}
+	if err := requireInitialized(ws, scope); err != nil {
 		return err
 	}
 	c, cfg, err := loadState(ws)
@@ -220,6 +244,9 @@ func runSync(cmd *cobra.Command, _ []string) error {
 func runStatus(cmd *cobra.Command, _ []string) error {
 	ws, scope, err := resolveBase()
 	if err != nil {
+		return err
+	}
+	if err := requireInitialized(ws, scope); err != nil {
 		return err
 	}
 	c, cfg, err := loadState(ws)

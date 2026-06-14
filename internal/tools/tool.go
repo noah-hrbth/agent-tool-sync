@@ -35,6 +35,14 @@ func (s Scope) String() string {
 	return "project"
 }
 
+// Command returns the agentsync invocation that operates at this scope.
+func (s Scope) Command() string {
+	if s == ScopeUser {
+		return "agentsync --global"
+	}
+	return "agentsync"
+}
+
 // Compatibility reports whether a tool supports a given concept.
 type Compatibility struct {
 	Supported   bool

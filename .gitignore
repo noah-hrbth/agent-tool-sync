@@ -26,3 +26,19 @@ Thumbs.db
 AGENTS.md
 GEMINI.md
 CLAUDE.md
+
+# BEGIN agentsync managed
+.agents/
+.claude/
+.cline/
+.clinerules/
+.codex/
+.cursor/
+.gemini/
+.junie/
+.opencode/
+.rules
+.vibe/
+CLAUDE.md
+GEMINI.md
+# END agentsync managed

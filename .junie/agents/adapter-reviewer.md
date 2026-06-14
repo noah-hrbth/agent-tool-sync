@@ -5,45 +5,46 @@ tools: [Read, Glob, Grep, Bash]
 model: sonnet
 ---
 
-You are reviewing one Go file under `internal/tools/` that implements `tools.Adapter`. The reference implementation is `internal/tools/claude.go`. The interface is defined in `internal/tools/adapter.go`. Your output is a structured review only — you do not edit code.
+You are reviewing one Go file under `internal/tools/` that defines a `Tool` — a `var <tool>Meta = ToolMeta{...}` literal plus a `func render<Tool>(c *canonical.Canonical, scope Scope) ([]FileWrite, error)`. There is **no `Adapter` interface**: metadata is data (`ToolMeta`), rendering is a function (`RenderFunc`). The reference implementation is `internal/tools/claude.go`; the `Tool`/`ToolMeta` types live in `internal/tools/tool.go`. Your output is a structured review only — you do not edit code.
 
 ## What to check
 
 For each item below: cite the file:line. If the check passes, say "OK"; if it fails, say what's wrong and what the fix is.
 
-### Interface compliance
+### ToolMeta literal
 
-1. The adapter implements all six `Adapter` methods (`Name`, `Detect`, `Supports`, `SupportsScope`, `Render`, `Alias`, `Notice`). Compare against `internal/tools/adapter.go`.
-2. `Detect` uses `detectGlobalDir` or `detectConfigDir` — not raw `os.Stat` on a path.
-3. `SupportsScope(ScopeUser)` honestly reflects whether the tool has an on-disk user config layer. Tools without one (Cursor user-scope, Zed user-scope) must return `Supported: false` with a non-empty `Reason`.
+1. The `ToolMeta` literal sets `Key` and `Name`, and lists **all 4 concepts** (`Concepts` map) and **both scopes** (`Scopes` map) explicitly — even unsupported ones, so the support matrix is visible in one literal.
+2. `Detect` is a `detectGlobalDir`/`detectConfigDir` closure (or a custom `DetectFunc` for irregular probes) — not raw `os.Stat` inlined in the literal.
+3. `Scopes[ScopeUser]` honestly reflects whether the tool has an on-disk user config layer. Tools without one (Cursor, Zed) must set `{Supported: false}` with a non-empty `Reason`.
+4. `Aliases` carries a concept only when the displayed filename differs from the canonical name (e.g. Claude `ConceptRules: "CLAUDE.md"`). `ConceptInfo` strings are accurate and specific (no generic "syncs to ~/.tool/" filler).
 
 ### Render correctness
 
-4. `Render` returns `FileWrite` entries with **scope-relative paths** — no leading `/`, no `os.UserHomeDir()` calls, no `filepath.Abs`. Paths are joined with `filepath.Join`.
-5. If the tool's user-scope path differs from project-scope, the path is computed from `scope` (e.g. `.opencode/` vs `.config/opencode/` in `opencode.go`) — not by branching on `runtime.GOOS` or env vars.
-6. Frontmatter is built via `buildMDFrontmatter` (`frontmatter.go`) or `buildTOML`. No hand-rolled `---\n...---` strings. No conditional inclusion of zero-value fields — those builders already skip zeros.
-7. Concepts the tool doesn't support (per `Supports`) are not emitted. Deprecated concepts (`Compatibility.Deprecated == true`) are also not emitted.
-8. Rule bodies: if the tool has a per-rule directory, each rule is its own file. If not, rules are appended as `##`-headed sections to the root memory via `buildRootMemoryContent`.
+5. `render<Tool>` returns `FileWrite` entries with **scope-relative paths** — no leading `/`, no `os.UserHomeDir()` calls, no `filepath.Abs`. Paths are joined with `filepath.Join` and built from the `paths.go` anchor constants, not re-typed literals.
+6. If the tool's user-scope path differs from project-scope, the path is computed from `scope` (e.g. `.opencode/` vs `.config/opencode/`) — not by branching on `runtime.GOOS` or env vars.
+7. Frontmatter is built via `buildMDFrontmatter` (`frontmatter.go`) or `buildTOML`. No hand-rolled `---\n...---` strings. No conditional inclusion of zero-value fields — those builders already skip zeros.
+8. Concepts the tool doesn't support (per `Meta.Concepts`) are not emitted. Deprecated concepts (`Compatibility.Deprecated == true`) are also not emitted.
+9. Rule bodies: if the tool has a per-rule directory, each rule is its own file. If not, rules are appended as `##`-headed sections to the root memory via `buildRootMemoryContent`.
 
 ### Field translation
 
-9. Any canonical field renamed for this tool (e.g. Claude `paths:` → Cursor `globs:`) is translated inside this adapter, not by the caller. Cross-reference `README.md` "Field translation across tools".
-10. Fields the tool ignores are not silently emitted with the canonical name — either omit, or translate, or document why emitting is harmless.
+10. Any canonical field renamed for this tool (e.g. Claude `paths:` → Cursor `globs:`) is translated inside this render func, not by the caller. Cross-reference `README.md` "Field translation across tools".
+11. Fields the tool ignores are not silently emitted with the canonical name — either omit, or translate, or document why emitting is harmless.
 
 ### Adopt-flow reversibility
 
-11. Every output path the adapter emits should appear in `internal/syncer/adopt.go` matchers (`matchRulePath`, `matchSkillPath`, `matchAgentPath`, `matchCommandPath`, or the `AGENTS.md` switch). If a path is intentionally not adoptable (e.g. concatenated rule bodies), the adapter file has a one-line comment explaining why.
+12. Every output path the render func emits should reverse via `internal/syncer/adopt.go` matchers (`matchRulePath`, `matchSkillPath`, `matchAgentPath`, `matchOpenCodeAgentPath`, `matchCommandPath`, the per-tool matchers like `matchCopilotInstructionPath`, or the root-memory `AGENTS.md` switch), and `tools.ExpectedAdoptOutcome` must declare the matching outcome for each `(tool, concept, path)`. If a path is intentionally non-reversible (e.g. concatenated rule bodies, TOML agents), `ExpectedAdoptOutcome` returns `OutcomeNonReversible` with a `Reason`. The contract test (`internal/syncer/contract_test.go`) enforces this — flag any drift.
 
 ### Registration and metadata
 
-12. The adapter is registered in `internal/tools/registry.go::All()`.
-13. `Name()` matches the human-readable name used in `README.md` tables exactly (case-sensitive).
-14. `Notice()` is non-empty only when the path layout is non-obvious to a user reading the TUI Tools screen. Generic notices ("syncs to ~/.tool/") add noise — flag them.
+13. The tool is registered in `internal/tools/registry.go::All()` as `{Meta: <tool>Meta, Render: render<Tool>}`.
+14. `Meta.Name` matches the human-readable name used in `README.md` tables exactly (case-sensitive).
+15. The metadata golden (`internal/tools/testdata/metadata_golden.json`) was regenerated (`UPDATE_GOLDEN=1 go test ./internal/tools/ -run TestMetadataParity`) and its diff reflects only this tool.
 
 ### Build and tests
 
-15. Run `go vet ./...` and report pass/fail.
-16. Run `go test ./internal/tools/... ./internal/syncer/...` and report pass/fail. If tests fail, include the relevant test name and the first error line.
+16. Run `go vet ./...` and report pass/fail.
+17. Run `go test ./internal/tools/... ./internal/syncer/...` and report pass/fail. If tests fail, include the relevant test name and the first error line.
 
 ## Output format
 

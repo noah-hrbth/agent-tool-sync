@@ -27,10 +27,11 @@ go install github.com/noah-hrbth/agentsync/cmd/agentsync@latest
 
 ## Quickstart
 
-1. Scaffold the canonical source:
+1. Run `agentsync`. On an uninitialized scope a setup wizard launches first: choose **Start fresh** or **Import from a detected tool** (Claude Code recommended) to bootstrap `.agentsync/` from an existing layout.
    ```bash
-   agentsync init              # project scope: ./.agentsync/
-   agentsync init --global     # user scope:    ~/.agentsync/
+   agentsync                   # first run: setup wizard, then the TUI
+   agentsync init              # same wizard, explicit — project scope: ./.agentsync/
+   agentsync init --global     # user scope: ~/.agentsync/
    ```
 2. Edit `.agentsync/AGENTS.md` with your rules, then add skills, agents, and commands under the corresponding subdirectories.
 3. Sync to all enabled tools:
@@ -209,8 +210,10 @@ When editing a skill, agent, or command in the TUI, tools that don't support tha
 ## CLI reference
 
 ```
-agentsync                         Launch TUI (default)
-agentsync init                    Scaffold .agentsync/ with sample AGENTS.md + config.yaml
+agentsync                         Launch TUI; on an uninitialized scope runs the setup wizard instead
+agentsync init                    Setup wizard (interactive) or fresh scaffold (non-TTY)
+agentsync init --from <tool>      Headless import from the named tool's existing layout
+agentsync init --force            Non-interactive re-init (wipes the existing .agentsync/)
 agentsync sync                    Headless one-way sync; exits non-zero on unresolved divergences
 agentsync status                  Print sync status for all files (●/▲/○/+)
 agentsync version                 Print version
@@ -219,5 +222,7 @@ Flags:
   --workspace <path>           Target directory (default: current directory)
   -g, --global                 Operate at user scope (canonical at ~/.agentsync/, syncs to user-level tool dirs)
 ```
+
+Running `agentsync init` on an already-initialized scope warns and asks for confirmation (`[y/N]`) before **wiping** the existing `.agentsync/` (including `.state/`) and re-running the wizard. `sync` and `status` fail fast (exit 1) on an uninitialized scope — run `agentsync init` (or `agentsync init --global`) first.
 
 In the TUI, press `g` to toggle between project and user scope. The active scope is shown in the tab bar.

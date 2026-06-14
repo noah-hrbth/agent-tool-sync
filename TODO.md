@@ -19,4 +19,5 @@
 
 ## Features
 
-- [ ] Bidirectional sync with `agentsync pull`
+- [x] Init setup wizard + one-time Import from a detected tool
+- [ ] Bidirectional sync with `agentsync pull` (ongoing two-way sync — distinct from one-time Import)

@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/mattn/go-isatty"
+
 	"github.com/noah-hrbth/agentsync/internal/config"
 	"github.com/noah-hrbth/agentsync/internal/gitignore"
 	"github.com/noah-hrbth/agentsync/internal/tools"
@@ -15,11 +17,14 @@ import (
 // isStdinTty reports whether stdin is a terminal. Used to decide whether the
 // CLI may prompt the user interactively.
 func isStdinTty() bool {
-	fi, err := os.Stdin.Stat()
-	if err != nil || fi == nil {
-		return false
-	}
-	return fi.Mode()&os.ModeCharDevice != 0
+	return isTerminal(os.Stdin)
+}
+
+// isTerminal reports whether f is an interactive terminal. A char-device mode
+// check is not enough: /dev/null is a char device but not a terminal
+func isTerminal(f *os.File) bool {
+	fd := f.Fd()
+	return isatty.IsTerminal(fd) || isatty.IsCygwinTerminal(fd)
 }
 
 // maxInvalidPromptRetries caps the y/n re-prompt loop so a stream of unexpected

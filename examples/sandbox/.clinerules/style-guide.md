@@ -1,9 +1,7 @@
 ---
-paths: [src/**/*.ts, src/**/*.tsx]
+paths: [src/**/*.ts]
 ---
-## TypeScript Style Guide
+## Style Guide (Cline)
 
-- Use `const` and `let`; avoid `var`.
-- Prefer explicit return types on exported functions.
-- Use named exports; avoid default exports in library code.
-- Sort imports: external packages first, then internal modules.
+- This rule was imported from the Cline setup.
+- Prefer named exports; avoid default exports.
